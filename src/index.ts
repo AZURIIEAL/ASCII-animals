@@ -46,7 +46,9 @@ export function createAsciiField(opts: AsciiFieldOptions): AsciiField {
   world.foodPal = foodPal;
   world.trailsOn = tweaks.trails;
   const debug = opts.debug ? new DebugOverlay(host) : null;
-  if (opts.debug) (host as HTMLElement & { __afWorld?: World }).__afWorld = world; // QA hook
+  // QA hooks (debug only): the world and a redraw, for scripted close-ups.
+  type QaHost = HTMLElement & { __afWorld?: World; __afDraw?: () => void };
+  if (opts.debug) (host as QaHost).__afWorld = world;
 
   let grid: Grid = makeGrid(1, 1, tweaks.cellSize, 1);
   let atlas: Atlas | null = null;
@@ -76,6 +78,8 @@ export function createAsciiField(opts: AsciiFieldOptions): AsciiField {
     drawFrame(ctx, grid, bg.canvas, atlas, buf, trails, dim, tweaks.trails);
     lastMs = performance.now() - t0;
   }
+
+  if (opts.debug) (host as QaHost).__afDraw = () => draw();
 
   const loop = new Loop((rawDt) => {
     const t0 = performance.now();
@@ -189,7 +193,8 @@ export function createAsciiField(opts: AsciiFieldOptions): AsciiField {
       document.removeEventListener('visibilitychange', onVisibility);
       unlisten();
       debug?.destroy();
-      delete (host as HTMLElement & { __afWorld?: World }).__afWorld;
+      delete (host as QaHost).__afWorld;
+      delete (host as QaHost).__afDraw;
       canvas.remove();
       releaseStyles();
     },

@@ -74,3 +74,13 @@ export function toLocal(
   out.u = (dx * -fy + dy * fx) / k;
   out.v = -(dx * fx + dy * fy) / k;
 }
+
+/**
+ * Anti-aliased coverage of a round part (capsule / circle) of radius r at distance d, both in cells.
+ * Approximates how much of a 1-cell box the part fills, so parts thinner than a cell come out as a
+ * continuous line of partial-alpha tiles instead of a broken staircase. Wide parts keep a soft rim.
+ */
+export function aaCov(d: number, r: number): number {
+  const peak = r < 0.5 ? 0.45 + 1.1 * r : 1; // a thin part never fills a whole cell
+  return peak * clamp01(r + 0.55 - d);
+}

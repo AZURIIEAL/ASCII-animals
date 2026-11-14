@@ -1,13 +1,18 @@
 import type { AnimalDef, Entity, Stamper, WorldView } from './types';
 import { placeAtEdge } from './common';
-import { capsule, clamp01, ellipse, G, smooth, softCov } from '../engine/shapes';
+import { aaCov, capsule, clamp01, ellipse, G, smooth, softCov } from '../engine/shapes';
 import { hash2, range } from '../math/rng';
 import { vnoise } from '../math/noise';
 import { angleDiff, approach } from '../math/vec2';
 
-// Spec §7.6 / §9.6. White cranes with black wingtips and a red crown, gliding in loose V flocks.
-const RADIUS = 10.2;
+// Spec §7.6 / §9.6, modelled on a red-crowned crane so it reads at a glance: white wings with a
+// black trailing edge and black fingered primaries, black neck, white head with a red crown,
+// long beak and trailing legs. Loose V flocks.
+const RADIUS = 10.8;
 const MAX_TURN = 0.4; // rad/s for leaders
+const W0 = 0.7; // wing root (cells from the spine)
+const W1 = 10.0; // wing tip
+const PRIM = 7.6; // primaries (black fingers) start here
 
 interface CraneData {
   leader: Entity | null; // null = flock leader
@@ -24,48 +29,79 @@ let span = 1;
 let palWhite = 0;
 let palTip = 0;
 let palCrown = 0;
-const beak = new Float32Array(6);
-const leg = new Float32Array(8);
+const beak = new Float32Array(8);
+const leg = new Float32Array(10);
 
 function cellFn(u: number, v: number, col: number, row: number): void {
   const z = cur.z;
   const ax = Math.abs(u);
-  // Body, neck and head (tiles).
-  const eb = ellipse(u, v, 0, 0.5, 0.9, 2.6, 0);
-  const dNeck = capsule(u, v, 0, -1.8, 0, -4.8);
-  const hx = u;
-  const hy = v + 5.2;
-  const dHead = Math.sqrt(hx * hx + hy * hy);
-  const cov = Math.max(softCov(eb), smooth(0.85, 0.3, dNeck), smooth(1.05, 0.5, dHead));
-  if (cov > 0.05) {
+
+  // ---- head, neck, body, tail ----
+  const dHead = Math.sqrt(u * u + (v + 6.05) * (v + 6.05));
+  const dNeck = capsule(u, v, 0, -1.6, 0, -5.6);
+  const eb = ellipse(u, v, 0, 0.4, 1.15, 2.5, 0);
+  const et = ellipse(u, v, 0, 2.9, 0.9, 0.95, 0);
+  const cHead = aaCov(dHead, 0.66);
+  const cNeck = aaCov(dNeck, 0.42);
+  const cBody = softCov(eb);
+  const cTail = softCov(et);
+  const cov = Math.max(cHead, cNeck, cBody, cTail);
+  if (cov > 0.04) {
     let pal = palWhite;
-    let sh = 0.78 - 0.3 * smooth(0.7, 1.0, eb) + (hash2(col, row + cur.id * 11) - 0.5) * 0.08;
-    if (v < -1.6) {
-      // Neck and head: white, with one red crown tile.
-      sh = 0.72 + 0.15 * (1 - clamp01(Math.min(dNeck, dHead) / 0.6));
-      const cx = u;
-      const cy = v + 5.4;
-      if (cx * cx + cy * cy < 0.12) {
-        pal = palCrown;
+    let sh: number;
+    let pri = z + 0.5;
+    if (cHead >= cov - 1e-6) {
+      sh = 0.9;
+      const cy = v + 6.2;
+      if (u * u + cy * cy < 0.14) {
+        pal = palCrown; // red crown
         sh = 0.6;
       }
+      pri = z + 0.6;
+    } else if (cNeck >= cov - 1e-6) {
+      pal = palTip; // black neck
+      sh = 0.55 + 0.35 * (1 - clamp01(dNeck / 0.5));
+      pri = z + 0.55;
+    } else if (cTail > cBody) {
+      pal = palTip; // black bustle (tertials)
+      sh = 0.45 + 0.3 * (1 - clamp01(et));
+    } else {
+      sh = 0.72 + 0.2 * (1 - clamp01(eb)) - 0.25 * smooth(0.7, 1.0, eb);
     }
-    S.stamp(col, row, S.tileKey(pal, sh), cov, z + 0.5);
+    S.stamp(col, row, S.tileKey(pal, sh), cov, pri);
     if (cov > 0.6) return;
   }
 
-  // Wings: one ellipse per side, squashed by the flap; black past ax = 7, darker trailing edge.
+  // ---- wings: a rounded-rectangle profile, squashed by the flap ----
   const wx = ax / span;
-  const e = ellipse(wx, v, 4.6, -0.2, 4.8, 1.3, 0.08);
-  if (e >= 1.12) return;
-  const tip = wx > 7;
-  let sh = 0.7 + 0.15 * clamp01((-v + 0.2) / 1.3); // leading edge lighter
-  sh -= 0.3 * smooth(0.0, 1.1, v + 0.2 - 0.25 * (wx / 9)); // darker trailing edge
-  sh -= 0.4 * smooth(0.72, 1.0, e) * sh; // rim
-  sh += (hash2(Math.floor(wx * 1.6) + (u < 0 ? 51 : 0), Math.floor(v * 1.6) + cur.id * 23) - 0.5) * 0.14;
-  sh *= 0.7 + 0.3 * span;
-  if (tip) sh = 0.35 + 0.5 * (sh - 0.3);
-  S.stamp(col, row, S.tileKey(tip ? palTip : palWhite, sh), softCov(e), z);
+  if (wx < W0 - 0.4 || wx > W1 + 0.8) return;
+  const t = clamp01((wx - W0) / (W1 - W0));
+  const half = 2.0 - 0.55 * t; // chord half-width: broad at the root, narrower at the tip
+  const mid = 0.1 - 0.5 * t + 0.3 * Math.max(0, wx - 5.0) * (0.6 + 0.4 * span); // hand swept back at the wrist
+  const dv = v - mid;
+  const ex = (wx - (W0 + W1) / 2) / ((W1 - W0) / 2);
+  const ey = dv / half;
+  const e = Math.sqrt(ex * ex * ex * ex + ey * ey);
+  const fingers = wx > PRIM;
+  // Primaries: separate fingers along the trailing half, poking past the tip.
+  if (fingers && ey > -0.35) {
+    const f = (wx - PRIM) * 1.45;
+    if (f - Math.floor(f) > 0.62) return; // gap between fingers
+  }
+  const limit = fingers && ey > -0.35 ? 1.18 : 1.1;
+  if (e >= limit) return;
+  const black = fingers || ey > 0.42; // black primaries and trailing edge (secondaries)
+  let sh: number;
+  if (black) {
+    sh = 0.62 - 0.2 * clamp01((ey - 0.42) / 0.6) + (fingers ? 0.08 : 0);
+  } else {
+    sh = 0.93 - 0.18 * clamp01((ey + 1) / 1.4); // leading edge brightest
+    if (ey > -0.1 && (Math.floor(wx * 1.25) & 1) === 0) sh -= 0.06; // feather rows
+    sh -= 0.3 * smooth(0.82, 1.05, e) * sh;
+  }
+  sh += (hash2(Math.floor(wx * 1.6) + (u < 0 ? 51 : 0), Math.floor(v * 1.6) + cur.id * 23) - 0.5) * 0.06;
+  sh *= 0.75 + 0.25 * span; // seen edge-on mid-flap
+  S.stamp(col, row, S.tileKey(black ? palTip : palWhite, sh), softCov(e, 0.85, limit), z);
 }
 
 function steerLeader(e: Entity, dt: number, world: WorldView): void {
@@ -111,9 +147,11 @@ export const crane: AnimalDef = {
   edge: 'wrap',
   palettes: {
     white: ['#16181d', '#3a3f4a', '#7d8494', '#c4c9d4', '#eef1f6', '#ffffff'],
-    tip: ['#050607', '#111318', '#22262e', '#343a45'],
+    // Slate rather than the spec's near-black: true black vanishes on the #0a0a0c background.
+    tip: ['#121419', '#262a33', '#3b414d', '#555d6b', '#727b8b', '#9aa3b2'],
     crown: ['#ef4444', '#ef4444'],
   },
+  lineShade: { white: 0.75, tip: 0.9 },
   pal: {},
 
   spawn(world, rng, fromEdge) {
@@ -211,20 +249,18 @@ export const crane: AnimalDef = {
     palCrown = this.pal.crown;
     s.forEachCell(e, RADIUS, cellFn);
     // Beak and trailing legs are glyph-only.
-    beak[0] = 0;
-    beak[1] = -5.7;
-    beak[2] = 0;
-    beak[3] = -6.5;
-    beak[4] = 0;
-    beak[5] = -7.2;
-    s.stampLine(e, beak, 3, palWhite, 0.6, e.z + 0.6, G['.']);
+    for (let i = 0; i < 4; i++) {
+      beak[i * 2] = 0;
+      beak[i * 2 + 1] = -6.7 - 0.65 * i;
+    }
+    s.stampLine(e, beak, 4, palWhite, 0.75, e.z + 0.6, G['.']);
     for (let side = -1; side <= 1; side += 2) {
-      for (let i = 0; i < 4; i++) {
-        const t = i / 3;
-        leg[i * 2] = side * (0.3 + 0.1 * t);
-        leg[i * 2 + 1] = 2.8 + 3.2 * t;
+      for (let i = 0; i < 5; i++) {
+        const t = i / 4;
+        leg[i * 2] = side * (0.28 + 0.12 * t);
+        leg[i * 2 + 1] = 3.5 + 4.0 * t;
       }
-      s.stampLine(e, leg, 4, palTip, 0.5, e.z - 0.2, G['.']);
+      s.stampLine(e, leg, 5, palTip, 0.6, e.z - 0.2, G['.']);
     }
   },
 };

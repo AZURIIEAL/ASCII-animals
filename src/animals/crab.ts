@@ -1,12 +1,17 @@
 import type { AnimalDef, Entity, Stamper, WorldView } from './types';
 import { placeAtEdge } from './common';
-import { capsule, clamp01, ellipse, G, smooth, softCov } from '../engine/shapes';
+import { aaCov, capsule, clamp01, ellipse, smooth, softCov } from '../engine/shapes';
+import { vnoise2 } from '../math/noise';
 import { hash2, range } from '../math/rng';
 import { angleDiff, approach } from '../math/vec2';
 
-// Spec §7.7 / §9.7. Faces -v and scuttles sideways (±u) with an alternating gait; claws go up when startled.
-const RADIUS = 6.2;
+// Spec §7.7 / §9.7, reworked to read as a real shore crab: a wide shell with front teeth, a groove and
+// pale speckles; eyes as dark beads on short stalks; big claws folded in front (dark fingertips) that
+// swing up and open when startled; four jointed walking legs per side that step in a gait.
+// Faces -v and scuttles sideways (±u).
+const RADIUS = 7.6;
 const GAIT_HZ = 6;
+const LEGS = 4;
 
 interface CrabData {
   dir: number; // +1 walks toward +u (right), -1 toward -u
@@ -20,10 +25,43 @@ let pal = 0;
 let up = 0;
 let gait = 0;
 let walking = false;
-const stalk = new Float32Array(4);
+// Claw joints (right side; mirrored), set per crab from `up`.
+let wristX = 0;
+let wristY = 0;
+let palmX = 0;
+let palmY = 0;
+let palmRot = 0;
+let tipX = 0; // fixed finger tip
+let tipY = 0;
+let dacX = 0; // movable finger tip
+let dacY = 0;
+// Leg joints per side: [rootX, rootY, kneeX, kneeY, tipX, tipY] × LEGS, for the right (+) and left (−) side.
+const legR = new Float32Array(LEGS * 6);
+const legL = new Float32Array(LEGS * 6);
 
-function legCov(d: number): number {
-  return smooth(0.3 + 0.42, 0.3 - 0.08, d);
+function legs(side: number, out: Float32Array): void {
+  for (let k = 0; k < LEGS; k++) {
+    // Fanned around the shell: front pair angled forward, back pair angled back.
+    const ph = gait + (k + (side > 0 ? 0 : 1)) * Math.PI; // alternating gait
+    const lift = walking ? Math.max(0, Math.sin(ph)) : 0;
+    const swing = walking ? Math.cos(ph) * 0.18 : 0;
+    const a = -0.3 + 0.4 * k + swing;
+    const ca = Math.cos(a);
+    const sa = Math.sin(a);
+    const rx = 2.9 * ca;
+    const ry = 0.1 + 2.0 * sa;
+    const reach = 2.15 - 0.35 * lift;
+    const kx = rx + reach * ca;
+    const ky = ry + reach * sa - 0.25;
+    const b = a + 0.95; // bent back at the knee
+    const len = 1.7 * (1 - 0.3 * lift); // a lifted tip looks shorter from above
+    out[k * 6] = rx;
+    out[k * 6 + 1] = ry;
+    out[k * 6 + 2] = kx;
+    out[k * 6 + 3] = ky;
+    out[k * 6 + 4] = kx + len * Math.cos(b);
+    out[k * 6 + 5] = ky + len * Math.sin(b);
+  }
 }
 
 function cellFn(u: number, v: number, col: number, row: number): void {
@@ -31,58 +69,88 @@ function cellFn(u: number, v: number, col: number, row: number): void {
   const ax = Math.abs(u);
   const side = u < 0 ? -1 : 1;
 
-  // Shell.
-  const eb = ellipse(u, v, 0, 0, 3.0, 2.0, 0);
-  if (eb < 1.12) {
-    const tx = u;
-    const ty = v + 0.7;
-    let sh = 0.3 + 0.42 * (1 - clamp01(Math.sqrt(tx * tx * 0.4 + ty * ty) / 2.2)); // lighter top centre
-    sh -= 0.5 * smooth(0.68, 1.0, eb) * sh; // rim
-    sh += (hash2(Math.floor(u * 1.6) + 3, Math.floor(v * 1.6) + cur.id * 41) - 0.5) * 0.2; // mottling
-    const hx = u + 0.9;
-    const hy = v + 0.9;
-    if (hx * hx + hy * hy < 0.2) sh = 0.97; // highlight
-    // Eyes: bright tiles at (±0.9, -2.4).
-    S.stamp(col, row, S.tileKey(pal, sh), softCov(eb), z + 0.4);
-    if (eb < 0.9) return;
+  // ---- eyes: dark beads on short stalks ----
+  const dStalk = capsule(ax, v, 0.75, -1.85, 0.9, -2.55 - 0.25 * up);
+  const ex = ax - 0.92;
+  const ey = v + 2.75 + 0.3 * up;
+  const dEye = Math.sqrt(ex * ex + ey * ey);
+  if (dEye < 0.9) {
+    // A bright bead (dark eyes vanish on the dark background).
+    S.stamp(col, row, S.tileKey(pal, 0.97), aaCov(dEye, 0.3), z + 0.7);
+    if (dEye < 0.35) return;
   }
-  const ex = ax - 0.9;
-  const ey = v + 2.4 + 0.2 * up;
-  if (ex * ex + ey * ey < 0.2) {
-    S.stamp(col, row, S.tileKey(pal, 0.97), 1, z + 0.6);
-    return;
+  if (dStalk < 0.5) S.stamp(col, row, S.tileKey(pal, 0.55), aaCov(dStalk, 0.16), z + 0.65);
+
+  // ---- shell: wide, flatter in front, with small teeth along the front corners ----
+  const sv = v < 0 ? v / 0.86 : v;
+  let es = ellipse(u, sv, 0, 0.1, 3.25, 2.3, 0);
+  const ang = Math.atan2(v - 0.1, ax);
+  if (ang < -0.2 && ang > -1.25) es -= 0.045 * Math.max(0, Math.sin(ang * 16)); // anterolateral teeth
+  if (es < 1.12) {
+    const cx = u;
+    const cy = v + 0.4;
+    let sh = 0.46 + 0.32 * (1 - clamp01(Math.sqrt(cx * cx * 0.35 + cy * cy) / 2.1)); // domed: lighter centre
+    if (ax < 0.16 && v > -0.6 && v < 1.4) sh -= 0.12; // central groove
+    if (Math.abs(v - 0.15 - 0.25 * ax) < 0.13 && ax > 0.4 && ax < 1.6) sh -= 0.1; // cervical groove
+    if (v < -1.55 && ax < 0.55) sh -= 0.12; // notch between the eyes
+    if (hash2(Math.floor(u * 1.7) + 5, Math.floor(v * 1.7) + cur.id * 41) > 0.9 && es < 0.8) sh += 0.16; // speckles
+    sh -= 0.4 * smooth(0.72, 1.02, es) * sh; // rim
+    sh += (vnoise2(u * 0.9 + cur.seed, v * 0.9) - 0.5) * 0.12;
+    S.stamp(col, row, S.tileKey(pal, sh), softCov(es), z + 0.4);
+    if (es < 0.88) return;
   }
 
-  // Claws: arm capsule and a pincer of two fingers with a notch; raised and opened when startled.
-  const lift = -0.7 * up;
-  const open = 0.35 + 0.45 * up;
-  const pv = -3.3 + lift;
-  const dArm = capsule(ax, v, 2.2, -1.2, 3.4, -2.6 + lift * 0.8);
-  const f1 = ellipse(ax, v, 3.3, pv - 0.35, 0.42, 0.85, -open);
-  const f2 = ellipse(ax, v, 3.95, pv - 0.1, 0.38, 0.75, open);
-  const pinch = Math.min(f1, f2);
-  const clawCov = Math.max(smooth(0.45 + 0.42, 0.45 - 0.08, dArm), softCov(pinch));
-  if (clawCov > 0.05) {
-    let sh = 0.48 + 0.25 * (1 - clamp01(pinch)) - 0.2 * smooth(0.75, 1.05, pinch);
-    if (pinch < 1 && v < pv - 0.6) sh += 0.15; // lighter fingertips
-    S.stamp(col, row, S.tileKey(pal, sh), clawCov, z + 0.3);
-    if (clawCov > 0.6) return;
+  // ---- claws: arm → wrist → palm, with a fixed finger and a movable finger (front only) ----
+  if (v < -0.6) {
+    const dArm = capsule(ax, v, 2.3, -1.25, wristX, wristY);
+    const dWrist = capsule(ax, v, wristX, wristY, palmX, palmY);
+    const ep = ellipse(ax, v, palmX, palmY, 1.1, 0.8, palmRot);
+    const dFix = capsule(ax, v, palmX - 0.55 * Math.cos(palmRot), palmY - 0.55 * Math.sin(palmRot), tipX, tipY);
+    const dDac = capsule(ax, v, palmX - 0.35 * Math.cos(palmRot) - 0.35 * Math.sin(palmRot), palmY - 0.35 * Math.sin(palmRot) + 0.35 * Math.cos(palmRot) * -1, dacX, dacY);
+    const cArm = Math.max(aaCov(dArm, 0.42), aaCov(dWrist, 0.48));
+    const cPalm = softCov(ep);
+    const cFing = Math.max(aaCov(dFix, 0.26), aaCov(dDac, 0.22));
+    const cc = Math.max(cArm, cPalm, cFing);
+    if (cc > 0.05) {
+      let sh: number;
+      if (cFing > cPalm && cFing > cArm) {
+        const tip = Math.min(
+          (ax - tipX) * (ax - tipX) + (v - tipY) * (v - tipY),
+          (ax - dacX) * (ax - dacX) + (v - dacY) * (v - dacY),
+        );
+        sh = tip < 0.35 ? 0.16 : 0.62; // dark fingertips
+      } else if (cPalm >= cArm) {
+        sh = 0.6 + 0.25 * (1 - clamp01(ep)) - 0.22 * smooth(0.7, 1.0, ep);
+      } else {
+        sh = 0.52 + 0.12 * (1 - clamp01(Math.min(dArm, dWrist) / 0.45));
+      }
+      sh += (hash2(Math.floor(u * 2) + 9, Math.floor(v * 2) + cur.id) - 0.5) * 0.08;
+      S.stamp(col, row, S.tileKey(pal, sh), cc, z + 0.45);
+      if (cc > 0.6) return;
+    }
   }
 
-  // Legs: 3 per side; tips lift (the leg shortens 20%) in an alternating gait.
+  // ---- walking legs: two segments each, bent back at the knee (at the sides only) ----
+  if (ax < 2.2) return;
+  const L = side > 0 ? legR : legL;
   let best = 9;
-  for (let k = 0; k < 3; k++) {
-    const phase = gait + (k + (side > 0 ? 1 : 0)) * Math.PI;
-    const l = walking ? Math.max(0, Math.sin(phase)) : 0;
-    const rx = 2.6;
-    const ry = -0.4 + 0.8 * k;
-    const tx = rx + (4.4 - rx) * (1 - 0.2 * l);
-    const ty = ry + (0.2 + 0.9 * k - ry) * (1 - 0.2 * l) + 0.25 * k;
-    const dl = capsule(ax, v, rx, ry, tx, ty);
-    if (dl < best) best = dl;
+  let seg2 = false;
+  for (let k = 0; k < LEGS; k++) {
+    const o = k * 6;
+    const d1 = capsule(ax, v, L[o], L[o + 1], L[o + 2], L[o + 3]);
+    const d2 = capsule(ax, v, L[o + 2], L[o + 3], L[o + 4], L[o + 5]);
+    if (d1 < best) {
+      best = d1;
+      seg2 = false;
+    }
+    if (d2 < best) {
+      best = d2;
+      seg2 = true;
+    }
   }
-  const lc = legCov(best);
-  if (lc > 0.05) S.stamp(col, row, S.tileKey(pal, 0.38 + 0.1 * (1 - clamp01(best / 0.4))), lc, z + 0.1);
+  const lc = aaCov(best, seg2 ? 0.28 : 0.36);
+  // Skip the faintest fringe: thin legs read crisp instead of furry.
+  if (lc > 0.32) S.stamp(col, row, S.tileKey(pal, seg2 ? 0.48 : 0.56), lc, z + 0.1);
 }
 
 function nearEdge(e: Entity, world: WorldView, m: number): boolean {
@@ -107,7 +175,7 @@ export const crab: AnimalDef = {
     e.x = range(rng, 60, Math.max(61, world.w - 60));
     e.y = range(rng, 60, Math.max(61, world.h - 60));
     e.heading = range(rng, 0, Math.PI * 2); // body facing
-    e.scale = range(rng, 1.05, 1.45);
+    e.scale = range(rng, 1.2, 1.5);
     e.speed = range(rng, 40, 80);
     e.seed = range(rng, 0, 1000);
     e.phase = range(rng, 0, 10);
@@ -196,14 +264,19 @@ export const crab: AnimalDef = {
     up = d.up;
     gait = e.phase;
     walking = e.state === 'walk' || e.state === 'run';
+    // Claws folded in front, pointing inward; startled, they swing up and out and open.
+    wristX = 3.35 + 0.3 * up;
+    wristY = -2.35 - 0.6 * up;
+    palmX = 2.35 + 1.0 * up;
+    palmY = -3.5 - 1.0 * up;
+    palmRot = 0.55 - 1.2 * up;
+    const open = 0.25 + 0.55 * up;
+    tipX = palmX - 1.45 * Math.cos(palmRot);
+    tipY = palmY - 1.45 * Math.sin(palmRot);
+    dacX = palmX - 1.35 * Math.cos(palmRot - open) - 0.2;
+    dacY = palmY - 1.35 * Math.sin(palmRot - open) + 0.15;
+    legs(1, legR);
+    legs(-1, legL);
     s.forEachCell(e, RADIUS, cellFn);
-    // Eye stalks: glyph-only '|'.
-    for (let side = -1; side <= 1; side += 2) {
-      stalk[0] = side * 0.85;
-      stalk[1] = -1.7;
-      stalk[2] = side * 0.9;
-      stalk[3] = -2.05 - 0.2 * up;
-      s.stampLine(e, stalk, 2, pal, 0.6, e.z + 0.5, G['|']);
-    }
   },
 };

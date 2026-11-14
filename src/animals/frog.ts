@@ -25,7 +25,6 @@ let S: Stamper;
 let cur: Entity;
 let data: FrogData;
 let pal = 0;
-let palEye = 0;
 let blotch = 0; // per-frog noise offset
 // Leg joints (local cells, right side; mirrored), updated per frog from the leg extension.
 let kneeX = 3.3;
@@ -50,13 +49,14 @@ function cellFn(u: number, v: number, col: number, row: number): void {
   const ey = v + 2.6;
   const dEye = Math.sqrt(ex * ex + ey * ey);
   if (dEye < 1.0) {
-    let p = palEye;
-    let sh = 0.62 + 0.33 * (1 - clamp01(dEye / 0.8)); // bright dome
-    if (data.blink > 0) {
-      p = pal;
-      sh = 0.55;
-    } else if ((ex * ex) / 0.1 + (ey * ey) / 0.03 < 1) sh = 0.04; // pupil
-    S.stamp(col, row, S.tileKey(p, sh), aaCov(dEye, 0.8), z + 0.6);
+    // Pale green bulge; the pupil sits toward the front-inner side so it lands on a whole cell.
+    let sh = 0.82 + 0.1 * (1 - clamp01(dEye / 0.6));
+    const px = ax - 1.18;
+    const py = v + 2.78;
+    if (dEye > 0.85) sh = 0.3;
+    else if (data.blink > 0) sh = 0.5;
+    else if (px * px + py * py < 0.18) sh = 0.03; // pupil
+    S.stamp(col, row, S.tileKey(pal, sh), aaCov(dEye, 0.8), z + 0.6);
     if (dEye < 0.7) return;
   }
 
@@ -147,7 +147,6 @@ export const frog: AnimalDef = {
   edge: 'soft',
   palettes: {
     skin: ['#04140a', '#0a2e16', '#145c2a', '#1f8a3c', '#34b553', '#6fd987', '#b8f2c6', '#f0fff4'],
-    eye: ['#1a1203', '#4a3407', '#8a6410', '#c9971c', '#f0c95a', '#fff4cf'],
   },
   pal: {},
 
@@ -252,7 +251,6 @@ export const frog: AnimalDef = {
     cur = e;
     data = e.data as FrogData;
     pal = this.pal.skin;
-    palEye = this.pal.eye;
     blotch = (e.seed % 97) * 1.37;
     // Legs fold in a Z while sitting; mid-air they stretch straight back.
     const l = Math.max(0, data.leg);

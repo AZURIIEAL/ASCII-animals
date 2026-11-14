@@ -41,7 +41,7 @@ export type SplatKey = (t: number, dn: number, col: number, row: number) => numb
 
 /**
  * Rasterise a tapered capsule given in world px (radii in px) straight into the stamper. Used for long,
- * bending parts (snake bodies, octopus arms) where searching every segment per cell would be too slow.
+ * bending parts (octopus arms) where searching every segment per cell would be too slow.
  * Overlapping joints resolve by coverage, so the body stays continuous.
  */
 export function splatCapsule(

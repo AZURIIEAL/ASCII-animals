@@ -1,12 +1,12 @@
 import type { AnimalDef, Entity, Pellet, Stamper, WorldView } from './types';
-import { aaCov, capsule, clamp01, ellipse, softCov } from '../engine/shapes';
+import { clamp01, ellipse, G, softCov } from '../engine/shapes';
 import { range, type Rng } from '../math/rng';
 import { angleDiff, approach } from '../math/vec2';
 
-// Ants: small three-part bodies (head, thorax, glossy gaster) with glyph-only jointed legs in a tripod
+// Ants: three-part bodies (head, thorax, glossy banded gaster) with glyph-only jointed legs in a tripod
 // gait and elbowed antennae. They march in two-way columns along winding trails; a click drops a
 // crumb, and the nearest ants leave the trail, pick it up and carry it home.
-const RADIUS = 4.2;
+const RADIUS = 2.6; // body only; limbs are glyph lines
 const CRUMB_LIFE = 40; // s
 const FETCHERS = 3;
 
@@ -106,102 +106,109 @@ let pal = 0;
 let palCrumb = 0;
 let gait = 0;
 let carrying = false;
-const LEG_ROOT_V = [-1.0, -0.75, -0.5];
+// Legs (right side; mirrored): root on the thorax, knee, tip. Front legs reach forward, hind legs back.
+const LEG_ROOT = [
+  [0.28, -1.15],
+  [0.32, -0.85],
+  [0.28, -0.55],
+];
 const LEG_KNEE = [
-  [1.15, -1.55],
-  [1.25, -0.7],
-  [1.15, 0.15],
+  [1.0, -1.6],
+  [1.15, -0.95],
+  [1.0, -0.05],
 ];
 const LEG_TIP = [
-  [1.55, -2.35],
-  [1.75, -0.55],
-  [1.6, 1.15],
+  [1.3, -2.35],
+  [1.7, -0.6],
+  [1.55, 1.15],
 ];
 
 function cellFn(u: number, v: number, col: number, row: number): void {
   const z = cur.z;
   if (carrying) {
     const cx = u;
-    const cy = v + 2.75;
-    if (cx * cx + cy * cy < 0.42) {
+    const cy = v + 3.0;
+    if (cx * cx + cy * cy < 0.3) {
       S.stamp(col, row, S.tileKey(palCrumb, 0.75), 1, z + 1);
       return;
     }
   }
-  const eh = ellipse(u, v, 0, -1.85, 0.72, 0.6, 0);
-  const et = ellipse(u, v, 0, -0.72, 0.46, 0.66, 0);
-  const ep = ellipse(u, v, 0, 0.18, 0.26, 0.26, 0);
-  const eg = ellipse(u, v, 0, 1.4, 0.95, 1.08, 0);
+  // Head, thorax, petiole node and gaster, with narrow waists between them.
+  const eh = ellipse(u, v, 0, -2.0, 0.7, 0.6, 0);
+  const et = ellipse(u, v, 0, -0.85, 0.42, 0.62, 0);
+  const ep = ellipse(u, v, 0, 0.05, 0.24, 0.22, 0);
+  const eg = ellipse(u, v, 0, 1.3, 0.88, 1.02, 0);
   const e = Math.min(eh, et, ep, eg);
-  if (e >= 1.12) {
-    limbs(u, v, col, row);
-    return;
-  }
-  let sh = 0.48 + 0.24 * (1 - clamp01(e));
-  // Glossy highlights on the head and gaster.
-  const g1x = u + 0.25;
-  const g1y = v - 1.05;
-  const g2x = u + 0.18;
-  const g2y = v + 2.0;
-  if (g1x * g1x + g1y * g1y < 0.1 || g2x * g2x + g2y * g2y < 0.06) sh = 0.92;
-  if (eg < 1 && (Math.floor((v - 0.6) * 2.2) & 1) === 1) sh -= 0.08; // gaster bands
-  S.stamp(col, row, S.tileKey(pal, sh), softCov(e, 0.8, 1.12), z + 0.4);
+  if (e >= 1.12) return;
+  let sh = 0.46 + 0.3 * (1 - clamp01(e));
+  // Glossy highlights: one on the head, one on the gaster, a sheen along the thorax.
+  const hx = u + 0.2;
+  const hy = v + 2.15;
+  const gx = u + 0.28;
+  const gy = v - 0.95;
+  if (hx * hx + hy * hy < 0.04 || gx * gx + gy * gy < 0.05) sh = 0.95;
+  else if (et < 0.6 && u < 0) sh += 0.12;
+  if (eg < 1 && e === eg && (Math.floor((v - 0.5) * 2.6) & 1) === 1) sh -= 0.1; // gaster bands
+  // Dark compound eyes at the sides of the head.
+  const ex = Math.abs(u) - 0.48;
+  const ey = v + 2.05;
+  if (ex * ex + ey * ey < 0.025) sh = 0.05;
+  S.stamp(col, row, S.tileKey(pal, sh), softCov(e, 0.82, 1.12), z + 0.4);
 }
 
-/** Leg and antenna joints (right side, mirrored by |u|) for this frame's gait. */
-const J = new Float32Array(3 * 6 * 2); // [side][leg] → root, knee, tip
-const AN = new Float32Array(6);
-function setLegs(): void {
-  for (let s = 0; s < 2; s++) {
+/** Legs, antennae and mandibles as glyph lines: crisp and thin, which is what makes it an ant. */
+const L = new Float32Array(2 * 32);
+let K = 1; // cells per local unit
+/** Append segment a→b to L, sampled about once per cell (the first point only when starting a line). */
+function seg(n0: number, ax: number, ay: number, bx: number, by: number): number {
+  const n = Math.max(2, Math.round(Math.hypot(bx - ax, by - ay) * K) + (n0 ? 0 : 1));
+  for (let i = 0; i < n; i++) {
+    const t = (i + (n0 ? 1 : 0)) / (n - (n0 ? 0 : 1));
+    L[(n0 + i) * 2] = ax + (bx - ax) * t;
+    L[(n0 + i) * 2 + 1] = ay + (by - ay) * t;
+  }
+  return n0 + n;
+}
+
+function limbs(e: Entity, s: Stamper): void {
+  K = e.scale;
+  const z = e.z + 0.1;
+  for (let side = -1; side <= 1; side += 2) {
     for (let k = 0; k < 3; k++) {
       // Tripod gait: legs 0 and 2 on one side move with leg 1 on the other.
-      const ph = gait + ((k & 1) ^ s) * Math.PI;
-      const sw = Math.sin(ph) * 0.35;
-      const o = (s * 3 + k) * 6;
-      J[o] = 0.3;
-      J[o + 1] = LEG_ROOT_V[k];
-      J[o + 2] = LEG_KNEE[k][0];
-      J[o + 3] = LEG_KNEE[k][1] + sw * 0.5;
-      J[o + 4] = LEG_TIP[k][0];
-      J[o + 5] = LEG_TIP[k][1] + sw;
+      const ph = gait + ((k & 1) ^ (side > 0 ? 1 : 0)) * Math.PI;
+      const sw = Math.sin(ph) * 0.4;
+      const lift = Math.max(0, Math.cos(ph)) * 0.12;
+      const kx = LEG_KNEE[k][0] + lift;
+      const ky = LEG_KNEE[k][1] + sw * 0.45;
+      let n = seg(0, side * LEG_ROOT[k][0], LEG_ROOT[k][1], side * kx, ky);
+      n = seg(n, side * kx, ky, side * (LEG_TIP[k][0] - lift), LEG_TIP[k][1] + sw);
+      s.stampLine(e, L, n, pal, 0.95, z, G['.']);
     }
+    // Elbowed antenna: a long scape out to the side, then the club bending forward.
+    const wig = Math.sin(gait * 0.7 + side) * 0.15;
+    let n = seg(0, side * 0.3, -2.45, side * 0.95, -2.95 + wig);
+    n = seg(n, side * 0.95, -2.95 + wig, side * (0.7 + wig), -3.75);
+    s.stampLine(e, L, n, pal, 0.85, z, G['o']);
+    // Mandibles.
+    n = seg(0, side * 0.22, -2.5, side * 0.08, -2.85);
+    s.stampLine(e, L, n, pal, 0.7, z, G['.']);
   }
-  AN[0] = 0.25;
-  AN[1] = -2.3;
-  AN[2] = 0.7;
-  AN[3] = -2.9;
-  AN[4] = 0.55;
-  AN[5] = -3.65;
-}
-
-/** Thin tiled legs and antennae (they define an ant at this size, so they get tiles, not glyphs). */
-function limbs(u: number, v: number, col: number, row: number): void {
-  const ax = Math.abs(u);
-  const s = u < 0 ? 0 : 1;
-  let d = 9;
-  for (let k = 0; k < 3; k++) {
-    const o = (s * 3 + k) * 6;
-    d = Math.min(d, capsule(ax, v, J[o], J[o + 1], J[o + 2], J[o + 3]), capsule(ax, v, J[o + 2], J[o + 3], J[o + 4], J[o + 5]));
-  }
-  const dA = Math.min(capsule(ax, v, AN[0], AN[1], AN[2], AN[3]), capsule(ax, v, AN[2], AN[3], AN[4], AN[5]));
-  const cov = Math.max(aaCov(d, 0.16), aaCov(dA, 0.12) * 0.9);
-  // Skip the faint fringe so legs read as crisp lines, not fuzz.
-  if (cov > 0.36) S.stamp(col, row, S.tileKey(pal, 0.6), cov, cur.z);
 }
 
 export const antDef: AnimalDef = {
   id: 'ant',
   label: 'Ants',
   dot: '#a47158',
-  baseCount: 34,
-  maxCount: 70,
-  radius: RADIUS,
+  baseCount: 18,
+  maxCount: 40,
+  radius: 4.4,
   clickMode: 'custom',
   edge: 'none',
   palettes: {
     body: ['#070504', '#1a1210', '#33241d', '#55392b', '#7a5240', '#a47158', '#e2b79a'],
   },
-  lineShade: { body: 0.72 },
+  lineShade: { body: 0.88 },
   pal: {},
 
   spawn(world, rng) {
@@ -213,14 +220,14 @@ export const antDef: AnimalDef = {
       path,
       p: rng(),
       dir,
-      lane: dir * range(rng, 3, 8), // keep to one side: two-way traffic passes
+      lane: dir * range(rng, 6, 16), // keep to one side: two-way traffic passes
       mode: 0,
       target: null,
       carry: false,
     };
     e.data = d;
-    e.speed = range(rng, 28, 44);
-    e.scale = range(rng, 1.9, 2.3);
+    e.speed = range(rng, 34, 52);
+    e.scale = range(rng, 2.7, 3.1);
     e.seed = range(rng, 0, 1000);
     e.phase = range(rng, 0, 10);
     pathAt(paths[path], d.p);
@@ -285,7 +292,7 @@ export const antDef: AnimalDef = {
     e.vy = Math.sin(e.heading) * sp;
     e.x += e.vx * dt;
     e.y += e.vy * dt;
-    e.phase += dt * sp * 0.28;
+    e.phase += dt * sp * 0.16;
     e.drawHeading = e.heading;
   },
 
@@ -323,7 +330,7 @@ export const antDef: AnimalDef = {
     palCrumb = world.crumbPal;
     gait = e.phase;
     carrying = (e.data as AntData).carry;
-    setLegs();
     s.forEachCell(e, RADIUS, cellFn);
+    limbs(e, s);
   },
 };

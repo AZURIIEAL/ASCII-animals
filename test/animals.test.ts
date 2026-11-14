@@ -9,7 +9,7 @@ import { mulberry32 } from '../src/math/rng';
 
 registerPalettes(new PaletteTable());
 
-const HOLD_STILL = new Set(['snail']);
+const HOLD_STILL = new Set<string>();
 
 function world(id: string, count = 12): { w: World; buf: CellBuffer } {
   const def = ANIMALS.find((a) => a.id === id)!;

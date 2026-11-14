@@ -79,8 +79,8 @@ export const manta: AnimalDef = {
     e.x = range(rng, 0, world.w);
     e.y = range(rng, 0, world.h);
     e.heading = range(rng, 0, Math.PI * 2);
-    e.speed = range(rng, 24, 42);
-    e.rate = range(rng, 0.32, 0.48); // beats per second
+    e.speed = range(rng, 60, 90);
+    e.rate = range(rng, 0.5, 0.65); // beats per second
     e.phase = range(rng, 0, 10);
     e.scale = range(rng, 1.4, 1.8);
     e.seed = range(rng, 0, 1000);
@@ -90,7 +90,7 @@ export const manta: AnimalDef = {
   },
 
   update(e, dt, world) {
-    e.heading += (vnoise(world.t * 0.1 + e.seed) - 0.5) * 0.7 * dt;
+    e.heading += (vnoise(world.t * 0.15 + e.seed) - 0.5) * 1.0 * dt;
     const sp = e.speed * (1 + 2.2 * e.panic);
     const k = approach(0.9, dt);
     e.vx += (Math.cos(e.heading) * sp - e.vx) * k;

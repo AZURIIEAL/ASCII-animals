@@ -8,7 +8,7 @@ import { angleDiff, approach } from '../math/vec2';
 // Moths: swept-back triangular forewings over smaller hindwings, dusty brown with wavy cross-lines, a
 // dark eye-spot and pale fringes; a thick fuzzy body; feathery antennae. Erratic flight, and when the
 // cursor is over the hero they circle it like a lamp.
-const RADIUS = 8.4;
+const RADIUS = 9.4;
 const LAMP_R = 460; // px: moths this close to the cursor are drawn to it
 
 let S: Stamper;
@@ -39,28 +39,36 @@ function cellFn(u: number, v: number, col: number, row: number): void {
 
   // Wings, squashed by the fold. Forewing: a rounded triangle (root, apex, tornus); hindwing: a fan.
   const wx = ax / fold;
-  const sdF = sdTriangle(wx, v, 0.7, -1.7, 6.9, -1.5, 4.4, 1.5) - 0.35;
-  const eH = ellipse(wx, v, 2.4, 1.85, 2.5, 1.7, 0.7);
+  const sdF = sdTriangle(wx, v, 0.7, -1.9, 8.0, -0.9, 4.6, 2.2) - 0.4;
+  const eH = ellipse(wx, v, 2.6, 2.3, 2.6, 1.9, 0.6);
   const sdH = (eH - 1) * 1.7;
   const sd = Math.min(sdF, sdH);
   if (sd > 0.6) return;
   const fore = sdF <= sdH;
   const r = Math.sqrt(wx * wx + (v + 0.6) * (v + 0.6)); // distance from the wing root
-  let sh = fore ? 0.5 + 0.14 * clamp01(wx / 7) : 0.36;
+  let sh = fore ? 0.48 + 0.12 * clamp01(wx / 8) : 0.4;
   if (fore) {
-    // Wavy transverse lines and a dark discal eye-spot.
-    const wav = Math.sin(v * 2.2 + cur.seed) * 0.18;
-    if (Math.abs(r - 2.4 + wav) < 0.24 || Math.abs(r - 4.6 + wav) < 0.24) sh -= 0.2;
-    const sx = wx - 3.9;
-    const sy = v + 0.55;
-    const sd2 = sx * sx + sy * sy;
-    if (sd2 < 0.32) sh = sd2 < 0.1 ? 0.78 : 0.14;
+    // Wavy pale cross-lines with a darker band between them, a dark band before the margin and a
+    // pale-ringed kidney spot: the classic noctuid pattern.
+    const wav = Math.sin(v * 2.0 + cur.seed) * 0.22;
+    const rr = r + wav;
+    if (rr < 2.3) sh -= 0.12; // dusky base
+    if (Math.abs(rr - 2.5) < 0.26 || Math.abs(rr - 5.3) < 0.26) sh = 0.82;
+    else if (rr > 2.5 && rr < 5.3) sh += 0.04;
+    else if (rr > 5.6 && rr < 6.6) sh -= 0.16;
+    const sx = wx - 4.0;
+    const sy = v + 0.35;
+    const sd2 = sx * sx * 1.4 + sy * sy;
+    if (sd2 < 0.5) sh = sd2 < 0.2 ? 0.1 : 0.78;
+  } else {
+    // Hindwing: plain, darker toward the margin.
+    sh += 0.1 * (1 - clamp01(r / 5));
   }
   const e = 1 + sd / 1.2; // ~edge-normalised, for the fringe and rim below
   sh += (vnoise2(wx * 1.1 + cur.seed, v * 1.1) - 0.5) * 0.18; // dusty scales
   if (e > 0.86) sh += 0.14; // pale fringe
   else sh -= 0.25 * smooth(0.6, 0.86, e) * sh;
-  sh *= 0.7 + 0.3 * fold;
+  sh *= 0.8 + 0.2 * fold;
   S.stamp(col, row, S.tileKey(palWing, sh), sdCov(sd), fore ? z : z - 0.05);
 }
 
@@ -77,11 +85,11 @@ function antenna(e: Entity, side: number): void {
     localToWorld(e, c, u, v, P);
     if (k > 0) {
       const g = G[lineGlyph(Math.atan2(P.y - py, P.x - px)) as LineGlyph];
-      S.stamp(Math.floor(P.x / c), Math.floor(P.y / c), S.lineKey(palBody, k === 6 ? G['.'] : g), 0.55, e.z - 0.2);
+      S.stamp(Math.floor(P.x / c), Math.floor(P.y / c), S.lineKey(palBody, k === 6 ? G['.'] : g), 0.9, e.z - 0.2);
       if (k < 6 && k > 1) {
         // Barbs: one cell out on each side of the shaft.
         localToWorld(e, c, u + side * 0.55, v - 0.15, Q);
-        S.stamp(Math.floor(Q.x / c), Math.floor(Q.y / c), key, 0.32, e.z - 0.3);
+        S.stamp(Math.floor(Q.x / c), Math.floor(Q.y / c), key, 0.55, e.z - 0.3);
       }
     }
     px = P.x;
@@ -93,7 +101,8 @@ export const moth: AnimalDef = {
   id: 'moth',
   label: 'Moth',
   dot: '#b89a72',
-  baseCount: 20,
+  baseCount: 14,
+  maxCount: 30,
   radius: RADIUS,
   clickMode: 'scatter',
   edge: 'wrap',
@@ -101,7 +110,7 @@ export const moth: AnimalDef = {
     wing: ['#120c07', '#2a1d12', '#4a3522', '#6e5236', '#94754f', '#b89a72', '#d9c3a0', '#f2e6cf'],
     body: ['#15100b', '#2e2318', '#4d3c2b', '#6f5a43', '#8f7a60', '#b4a184'],
   },
-  lineShade: { body: 0.8 },
+  lineShade: { body: 0.95 },
   pal: {},
 
   spawn(world, rng, fromEdge) {
@@ -112,7 +121,7 @@ export const moth: AnimalDef = {
     e.speed = range(rng, 45, 75);
     e.rate = range(rng, 6, 9); // flap Hz: quicker than a butterfly
     e.phase = range(rng, 0, 10);
-    e.scale = range(rng, 0.95, 1.3);
+    e.scale = range(rng, 1.35, 1.65);
     e.seed = range(rng, 0, 1000);
     e.stateT = range(rng, 0, Math.PI * 2); // orbit angle around the lamp
     if (fromEdge) placeAtEdge(e, world, rng, RADIUS * e.scale * world.cell);
@@ -152,7 +161,7 @@ export const moth: AnimalDef = {
     cur = e;
     palWing = this.pal.wing;
     palBody = this.pal.body;
-    fold = 0.22 + 0.78 * Math.pow(Math.abs(Math.cos(e.phase)), 0.6);
+    fold = 0.5 + 0.5 * Math.pow(Math.abs(Math.cos(e.phase)), 0.6);
     s.forEachCell(e, RADIUS, cellFn);
     antenna(e, -1);
     antenna(e, 1);

@@ -87,7 +87,7 @@ export function aaCov(d: number, r: number): number {
 
 /**
  * Signed distance (cells) from (px, py) to the triangle a-b-c: negative inside.
- * For sharp-cornered shapes such as moth forewings, manta wings and bat membranes.
+ * For sharp-cornered shapes such as moth forewings and manta wings.
  */
 export function sdTriangle(
   px: number,

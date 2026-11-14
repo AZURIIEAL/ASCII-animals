@@ -10,12 +10,9 @@ export type AnimalId =
   | 'moth'
   | 'sardine'
   | 'ant'
-  | 'snail'
-  | 'snake'
   | 'octopus'
   | 'manta'
   | 'spider'
-  | 'bat'
   | 'whale';
 
 export interface Tweaks {

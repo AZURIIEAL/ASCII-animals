@@ -24,12 +24,9 @@ export const ANIMAL_META: AnimalMeta[] = [
   { id: 'moth', label: 'Moth', dot: '#b89a72' },
   { id: 'sardine', label: 'Sardines', dot: '#9cc3dc' },
   { id: 'ant', label: 'Ants', dot: '#a47158' },
-  { id: 'snail', label: 'Snail', dot: '#ddb27a' },
-  { id: 'snake', label: 'Snake', dot: '#e8934a' },
   { id: 'octopus', label: 'Octopus', dot: '#ea8a64' },
   { id: 'manta', label: 'Manta ray', dot: '#7d9fbd' },
   { id: 'spider', label: 'Spider', dot: '#c27a2a' },
-  { id: 'bat', label: 'Bat', dot: '#8a7fa0' },
   { id: 'whale', label: 'Whale', dot: '#93b1c7' },
 ];
 
@@ -45,12 +42,9 @@ const LOADERS: Record<AnimalId, () => Promise<AnimalDef>> = {
   moth: () => import('./moth').then((m) => m.moth),
   sardine: () => import('./sardine').then((m) => m.sardine),
   ant: () => import('./ant').then((m) => m.antDef),
-  snail: () => import('./snail').then((m) => m.snail),
-  snake: () => import('./snake').then((m) => m.snake),
   octopus: () => import('./octopus').then((m) => m.octopus),
   manta: () => import('./manta').then((m) => m.manta),
   spider: () => import('./spider').then((m) => m.spider),
-  bat: () => import('./bat').then((m) => m.bat),
   whale: () => import('./whale').then((m) => m.whale),
 };
 

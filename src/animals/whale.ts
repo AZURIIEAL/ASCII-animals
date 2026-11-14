@@ -159,11 +159,11 @@ export const whale: AnimalDef = {
     // Start above or below the middle band, where the hero text usually sits.
     e.y = rng() < 0.5 ? range(rng, world.h * 0.15, world.h * 0.3) : range(rng, world.h * 0.7, world.h * 0.85);
     e.heading = rng() < 0.5 ? range(rng, -0.4, 0.4) : Math.PI + range(rng, -0.4, 0.4);
-    e.speed = range(rng, 12, 19);
-    e.rate = range(rng, 0.18, 0.26); // fluke beats per second
+    e.speed = range(rng, 34, 46);
+    e.rate = range(rng, 0.3, 0.4); // fluke beats per second
     e.phase = range(rng, 0, 10);
-    // Scale so the whale is ~60 cells long on a desktop hero, less on small screens.
-    e.scale = Math.max(0.55, Math.min(1.1, world.w / 1800));
+    // Scale so the whale is ~85 cells long on a desktop hero, less on small screens.
+    e.scale = Math.max(0.75, Math.min(1.5, world.w / 1250));
     e.seed = range(rng, 0, 1000);
     e.data = { spoutIn: range(rng, 2, 6), drops: new Float32Array(DROPS * 5), dropN: 0, slap: 0 } satisfies WhaleData;
     if (fromEdge) placeAtEdge(e, world, rng, RADIUS * e.scale * world.cell);
@@ -175,7 +175,7 @@ export const whale: AnimalDef = {
 
   update(e, dt, world) {
     const d = e.data as WhaleData;
-    e.heading += (vnoise(world.t * 0.05 + e.seed) - 0.5) * 0.25 * dt;
+    e.heading += (vnoise(world.t * 0.08 + e.seed) - 0.5) * 0.4 * dt;
     const k = approach(0.5, dt);
     e.vx += (Math.cos(e.heading) * e.speed - e.vx) * k;
     e.vy += (Math.sin(e.heading) * e.speed - e.vy) * k;

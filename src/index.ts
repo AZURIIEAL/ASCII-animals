@@ -65,7 +65,6 @@ export function createAsciiField(opts: AsciiFieldOptions): AsciiField {
   const bg = new Background(mulberry32(seed ^ 0x5bd1e995), opts.theme ?? 'dark', tweaks.bgDensity);
   const world = new World(NO_ANIMAL, mulberry32(seed), buf, trails, seed);
   world.density = tweaks.density;
-  world.countOverride = opts.count ?? 0;
   world.foodPal = FOOD_PAL;
   world.crumbPal = CRUMB_PAL;
   world.trailsOn = tweaks.trails;
@@ -151,6 +150,7 @@ export function createAsciiField(opts: AsciiFieldOptions): AsciiField {
       (def) => {
         if (destroyed || token !== loadToken) return;
         atlas = buildAtlas(PALETTES.list, grid.cell, grid.dpr); // now includes this animal's ramps
+        world.countOverride = opts.count ?? 0; // only once a real animal is in: the placeholder cannot spawn
         // Fly the old animals out and the new ones in — except for the very first animal and in still mode.
         world.setAnimal(def, stillT === null && world.def !== NO_ANIMAL);
         if (stillT !== null && !simulated) {

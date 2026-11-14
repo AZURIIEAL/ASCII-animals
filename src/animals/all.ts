@@ -14,12 +14,9 @@ import { firefly } from './firefly';
 import { moth } from './moth';
 import { sardine } from './sardine';
 import { antDef } from './ant';
-import { snail } from './snail';
-import { snake } from './snake';
 import { octopus } from './octopus';
 import { manta } from './manta';
 import { spider } from './spider';
-import { bat } from './bat';
 import { whale } from './whale';
 
 export const ANIMALS: AnimalDef[] = [
@@ -34,12 +31,9 @@ export const ANIMALS: AnimalDef[] = [
   moth,
   sardine,
   antDef,
-  snail,
-  snake,
   octopus,
   manta,
   spider,
-  bat,
   whale,
 ];
 

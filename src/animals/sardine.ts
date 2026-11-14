@@ -1,6 +1,6 @@
 import type { AnimalDef, Entity, Stamper, WorldView } from './types';
 import { placeAtEdge } from './common';
-import { clamp01, ellipse, softCov } from '../engine/shapes';
+import { clamp01, ellipse, smooth, softCov } from '../engine/shapes';
 import { range } from '../math/rng';
 import { vnoise } from '../math/noise';
 import { angleDiff, approach } from '../math/vec2';
@@ -8,14 +8,14 @@ import { angleDiff, approach } from '../math/vec2';
 // Sardines: small silver fish with a dark blue back and bright flanks that flash as they turn, in a
 // tight school. A click startles the nearest fish and the panic ripples through the school, so it
 // twists away together.
-const RADIUS = 6.8;
-const N = 5; // spine points
-const GAP = 1.3;
-const V0 = -2.8;
-const RADII = [0.95, 1.3, 1.25, 0.85, 0.42];
-const SEP = 75; // px: about one body length, so bodies don't overlap
-const ALI = 110;
-const COH = 170;
+const RADIUS = 7.2;
+const N = 6; // spine points
+const GAP = 1.2;
+const V0 = -3.4;
+const RADII = [0.55, 1.0, 1.08, 0.95, 0.66, 0.4]; // pointed snout, deepest a third back, slim tail stock
+const SEP = 100; // px: about one body length, so bodies don't overlap
+const ALI = 150;
+const COH = 230;
 
 interface SardineData {
   turn: number; // smoothed turn rate, drives the flank flash
@@ -24,6 +24,7 @@ interface SardineData {
 let S: Stamper;
 let cur: Entity;
 let pal = 0;
+let palBack = 0;
 let flash = 0;
 const su = new Float32Array(N);
 const sv = new Float32Array(N);
@@ -57,19 +58,29 @@ function cellFn(u: number, v: number, col: number, row: number): void {
   }
   if (best < 1.15) {
     const lat = Math.abs(blat) / br;
-    // Dark blue back stripe, silver flanks that flash bright while turning.
-    let sh = lat < 0.22 ? 0.4 : 0.6 + 0.3 * flash + 0.12 * (lat - 0.22);
-    if (bs > 0.2 && bs < 0.75 && lat > 0.35 && lat < 0.8) sh = 0.05; // eye
-    if (bs > 0.9 && bs < 1.15 && lat > 0.3) sh -= 0.15; // gill line
-    sh -= 0.25 * clamp01((best - 0.75) / 0.4) * sh;
-    S.stamp(col, row, S.tileKey(pal, sh), softCov(best, 0.75, 1.15), z + 0.2);
+    // From above: a dark blue-green back, a bright silver band along each flank (it flashes while
+    // turning), a row of dark spots on the band, eyes at the sides of the head and a dark gill line.
+    let p = palBack;
+    let sh = 0.45 + 0.2 * (1 - lat / 0.42) - 0.06 * (bs / (N - 1));
+    if (lat > 0.42) {
+      p = pal;
+      sh = 0.55 + 0.25 * flash + 0.15 * smooth(0.42, 0.7, lat);
+      if (bs > 1.3 && bs < 3.6 && lat > 0.5 && lat < 0.8 && Math.abs(((bs * 2.4) % 1) - 0.5) < 0.18) sh = 0.18; // spots
+    }
+    if (bs > 0.3 && bs < 0.7 && lat > 0.3 && lat < 0.62) {
+      p = pal;
+      sh = 0.04; // eye
+    }
+    if (bs > 0.85 && bs < 1.05 && lat > 0.45) sh -= 0.18; // gill line
+    sh -= 0.3 * clamp01((best - 0.8) / 0.35) * sh;
+    S.stamp(col, row, S.tileKey(p, sh), softCov(best, 0.78, 1.15), z + 0.2);
     return;
   }
   // Forked tail.
   const tu = u - tailU;
   const tv = v - sv[N - 1];
-  const te = Math.min(ellipse(tu, tv, -0.7, 1.15, 0.45, 1.25, 0.55), ellipse(tu, tv, 0.7, 1.15, 0.45, 1.25, -0.55));
-  if (te < 1.1) S.stamp(col, row, S.tileKey(pal, 0.45 + 0.2 * flash), softCov(te) * 0.85, z);
+  const te = Math.min(ellipse(tu, tv, -0.6, 1.05, 0.5, 1.15, 0.5), ellipse(tu, tv, 0.6, 1.05, 0.5, 1.15, -0.5));
+  if (te < 1.1) S.stamp(col, row, S.tileKey(palBack, 0.5 + 0.15 * flash - 0.15 * clamp01(te)), softCov(te), z);
 }
 
 // Steering accumulator (module-level: no closures per frame).
@@ -132,13 +143,14 @@ export const sardine: AnimalDef = {
   id: 'sardine',
   label: 'Sardines',
   dot: '#9cc3dc',
-  baseCount: 38,
-  maxCount: 80,
+  baseCount: 26,
+  maxCount: 55,
   radius: RADIUS,
   clickMode: 'scatter',
   edge: 'soft',
   palettes: {
-    body: ['#06101a', '#0f2333', '#1f4560', '#3d6f8f', '#7aa6c2', '#c4dbe8', '#f4fbff'],
+    body: ['#06101a', '#1a2b38', '#3e5868', '#6f8c9e', '#a8c0cf', '#d8e6ee', '#ffffff'],
+    back: ['#03080d', '#0a1c26', '#123241', '#1c4a5c', '#2b6477', '#4a8597'],
   },
   pal: {},
 
@@ -148,11 +160,11 @@ export const sardine: AnimalDef = {
     const g = Math.floor(rng() * 3);
     const gx = world.w * (0.25 + 0.25 * g);
     const gy = world.h * (0.35 + 0.15 * ((g * 7) % 3));
-    e.x = gx + range(rng, -220, 220);
-    e.y = gy + range(rng, -140, 140);
+    e.x = gx + range(rng, -260, 260);
+    e.y = gy + range(rng, -170, 170);
     e.heading = g * 2.1 + range(rng, -0.3, 0.3);
     e.speed = range(rng, 70, 105);
-    e.scale = range(rng, 1.1, 1.35);
+    e.scale = range(rng, 1.75, 2.05);
     e.seed = range(rng, 0, 1000);
     e.phase = range(rng, 0, 10);
     e.data = { turn: 0 } satisfies SardineData;
@@ -179,14 +191,15 @@ export const sardine: AnimalDef = {
     S = s;
     cur = e;
     pal = this.pal.body;
+    palBack = this.pal.back;
     const d = e.data as SardineData;
     flash = clamp01(d.turn * 0.6 + e.panic * 0.5);
-    const amp = 0.35;
+    const amp = 0.3;
     for (let i = 0; i < N; i++) {
-      su[i] = Math.sin(e.phase * 9 - i * 0.9) * amp * (i / (N - 1));
+      su[i] = Math.sin(e.phase * 9 - i * 0.9) * amp * (i / (N - 1)) ** 1.5;
       sv[i] = V0 + i * GAP;
     }
-    tailU = Math.sin(e.phase * 9 - N * 0.9) * amp * 1.6;
+    tailU = Math.sin(e.phase * 9 - N * 0.9) * amp * 1.5;
     s.forEachCell(e, RADIUS, cellFn);
   },
 };

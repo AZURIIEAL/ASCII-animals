@@ -22,7 +22,7 @@ function cellFn(u: number, v: number, col: number, row: number): void {
   const ax = Math.abs(u);
 
   // Cephalic fins: two short curled lobes in front of the head.
-  const dF = capsule(ax, v, 0.85, -2.7, 0.65 + 0.15 * Math.sin(wave * 0.5), -3.9);
+  const dF = capsule(ax, v, 0.9, -3.3, 0.7 + 0.15 * Math.sin(wave * 0.5), -4.6);
   const fc = aaCov(dF, 0.36);
   if (fc > 0.3) {
     S.stamp(col, row, S.tileKey(pal, 0.24), fc, z + 0.5);
@@ -31,24 +31,24 @@ function cellFn(u: number, v: number, col: number, row: number): void {
 
   // Body + wings: a central disc and a rounded triangle per side, squashed by the flap.
   const wx = ax / span;
-  const bend = (1 - span) * 1.4 * clamp01(wx / 9); // tips sweep back as they rise
+  const bend = (1 - span) * 2.5 * clamp01(wx / 9); // tips sweep back as they rise
   const vv = v - bend;
   // Wing: leading edge from the head out to a swept-back pointed tip; the trailing edge is scooped
   // (concave) on its way back to the body, which gives the classic manta silhouette.
-  let sdW = sdTriangle(wx, vv, 0.5, -2.7, 10.8, 1.9, 0.9, 2.5) - 0.3;
-  const scx = 6.4;
-  const scy = 5.3;
-  const scoop = 3.25 - Math.sqrt((wx - scx) * (wx - scx) + (vv - scy) * (vv - scy));
+  let sdW = sdTriangle(wx, vv, 0.5, -3.4, 9.6, 2.6, 0.9, 4.4) - 0.3;
+  const scx = 6.0;
+  const scy = 7.0;
+  const scoop = 3.6 - Math.sqrt((wx - scx) * (wx - scx) + (vv - scy) * (vv - scy));
   if (scoop > sdW) sdW = scoop; // carve the concave trailing edge
-  const eb = ellipse(u, v * (v < 0 ? 1.15 : 1), 0, 0.2, 1.9, 3.0, 0); // flat-fronted head and body
+  const eb = ellipse(u, v * (v < 0 ? 1.1 : 1), 0, 0.5, 2.1, 3.6, 0); // flat-fronted head and body
   const sd = Math.min(sdW, (eb - 1) * 1.6);
   if (sd > 0.6) return;
   let sh = 0.44;
-  sh += 0.12 * (1 - clamp01(wx / 10.8)); // body ridge lighter
+  sh += 0.12 * (1 - clamp01(wx / 9.6)); // body ridge lighter
   // Leading edge catches light; trailing edge darker.
-  sh += 0.1 * smooth(0, -1.6, vv - (-2.7 + (4.6 / 10.3) * wx));
+  sh += 0.1 * smooth(0, -1.6, vv - (-3.4 + (6.0 / 9.1) * wx));
   // Pale shoulder chevrons (like a reef manta).
-  if (ellipse(ax, v, 2.3, -0.8, 1.8, 0.55, 0.42) < 1) sh = 0.84;
+  if (ellipse(ax, v, 2.4, -0.6, 1.9, 0.6, 0.5) < 1) sh = 0.84;
   // A light band travels out along the wings with each beat.
   sh += 0.1 * Math.sin(wx * 0.9 - wave) * clamp01(wx / 2);
   sh += (vnoise2(u * 0.8 + cur.seed, v * 0.8) - 0.5) * 0.1; // mottling
@@ -62,9 +62,9 @@ export const manta: AnimalDef = {
   id: 'manta',
   label: 'Manta ray',
   dot: '#7d9fbd',
-  baseCount: 4,
-  minCount: 2,
-  maxCount: 8,
+  baseCount: 12,
+  minCount: 6,
+  maxCount: 18,
   radius: RADIUS + 6,
   clickMode: 'scatter',
   edge: 'wrap',
@@ -79,10 +79,10 @@ export const manta: AnimalDef = {
     e.x = range(rng, 0, world.w);
     e.y = range(rng, 0, world.h);
     e.heading = range(rng, 0, Math.PI * 2);
-    e.speed = range(rng, 60, 90);
-    e.rate = range(rng, 0.5, 0.65); // beats per second
+    e.speed = range(rng, 120, 165);
+    e.rate = range(rng, 0.75, 0.95); // beats per second
     e.phase = range(rng, 0, 10);
-    e.scale = range(rng, 1.4, 1.8);
+    e.scale = range(rng, 1.1, 1.4);
     e.seed = range(rng, 0, 1000);
     if (fromEdge) placeAtEdge(e, world, rng, (RADIUS + 6) * e.scale * world.cell);
     e.drawHeading = e.heading;
@@ -92,7 +92,7 @@ export const manta: AnimalDef = {
   update(e, dt, world) {
     e.heading += (vnoise(world.t * 0.15 + e.seed) - 0.5) * 1.0 * dt;
     const sp = e.speed * (1 + 2.2 * e.panic);
-    const k = approach(0.9, dt);
+    const k = approach(1.5, dt);
     e.vx += (Math.cos(e.heading) * sp - e.vx) * k;
     e.vy += (Math.sin(e.heading) * sp - e.vy) * k;
     e.x += e.vx * dt;
@@ -105,14 +105,14 @@ export const manta: AnimalDef = {
     S = s;
     cur = e;
     pal = this.pal.back;
-    span = 0.84 + 0.16 * Math.cos(e.phase); // from above, the wingtips rising and falling shorten the span only a little
+    span = 0.92 + 0.08 * Math.cos(e.phase); // from above, the wingtips rising and falling shorten the span only a little
     wave = e.phase;
     s.forEachCell(e, RADIUS, cellFn);
     // Long whip tail, glyph-only, with a slow sway.
     for (let i = 0; i < 5; i++) {
       const t = i / 4;
       tail[i * 2] = Math.sin(e.phase * 0.5 - t * 2) * 0.6 * t;
-      tail[i * 2 + 1] = 2.7 + 5.8 * t;
+      tail[i * 2 + 1] = 4.0 + 6.5 * t;
     }
     s.stampLine(e, tail, 5, pal, 0.75, e.z - 0.1, G['.']);
   },

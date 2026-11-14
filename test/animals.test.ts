@@ -4,7 +4,7 @@ import { Trails } from '../src/engine/trails';
 import { makeGrid } from '../src/engine/grid';
 import { PaletteTable } from '../src/engine/palettes';
 import { World } from '../src/engine/world';
-import { ANIMALS, registerPalettes } from '../src/animals/registry';
+import { ANIMALS, registerPalettes } from '../src/animals/all';
 import { mulberry32 } from '../src/math/rng';
 
 registerPalettes(new PaletteTable());
@@ -72,10 +72,25 @@ describe('every animal', () => {
 
   it('spawns are spread over the host (no RNG stride correlation)', () => {
     for (const a of ANIMALS) {
+      if ((a.maxCount ?? 80) <= 2) continue; // single showpiece animals are placed on purpose (the whale)
       const { w } = world(a.id, 30);
       const ys = w.entities.map((e) => e.y / 900);
       const mid = ys.filter((y) => y > 0.3 && y < 0.7).length;
       expect(mid).toBeGreaterThan(4);
+    }
+  });
+});
+
+describe('lazy registry', () => {
+  it('metadata matches the animal definitions, and every animal loads', async () => {
+    const { ANIMAL_META, loadAnimal } = await import('../src/animals/registry');
+    expect(ANIMAL_META.map((m) => m.id)).toEqual(ANIMALS.map((a) => a.id));
+    for (const m of ANIMAL_META) {
+      const def = await loadAnimal(m.id);
+      expect(def.id).toBe(m.id);
+      expect(def.label).toBe(m.label);
+      expect(def.dot).toBe(m.dot);
+      for (const k of Object.keys(def.palettes)) expect(def.pal[k]).toBeTypeOf('number');
     }
   });
 });

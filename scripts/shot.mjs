@@ -7,6 +7,8 @@ const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1833, height: 987 } });
 for (const [i, q] of queries.entries()) {
   await page.goto(`${url}?${q}`);
+  // Animals load lazily: wait for the first one to be drawn (falls back to the plain delay).
+  await page.waitForSelector('canvas[data-ready]', { timeout: 5000 }).catch(() => {});
   await page.waitForTimeout(400);
   await page.screenshot({ path: `${out}_${i}.png` });
 }

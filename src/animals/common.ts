@@ -33,8 +33,11 @@ export function placeAtEdge(e: Entity, world: WorldView, rng: Rng, margin: numbe
   e.drawHeading = e.heading;
 }
 
-/** Shade for a splatted cell: t = position along the segment (0..1), dn = distance / radius (0 centre … 1 edge). */
-export type SplatShade = (t: number, dn: number, col: number, row: number) => number;
+/**
+ * Tile key for a splatted cell: t = position along the segment (0..1), dn = signed lateral distance / radius
+ * (−1 one edge … 0 centre … 1 the other edge), so patterns can differ by side.
+ */
+export type SplatKey = (t: number, dn: number, col: number, row: number) => number;
 
 /**
  * Rasterise a tapered capsule given in world px (radii in px) straight into the stamper. Used for long,
@@ -49,9 +52,8 @@ export function splatCapsule(
   by: number,
   ra: number,
   rb: number,
-  pal: number,
   pri: number,
-  shade: SplatShade,
+  key: SplatKey,
   alphaMul = 1,
 ): void {
   const c = S.cell;
@@ -75,7 +77,8 @@ export function splatCapsule(
       const r = ra + (rb - ra) * t;
       const cov = aaCov(d / c, r / c);
       if (cov < 0.04) continue;
-      S.stamp(col, row, S.tileKey(pal, shade(t, d / r, col, row)), cov * alphaMul, pri + cov * 0.001);
+      const side = dx * -sy + dy * sx < 0 ? -1 : 1;
+      S.stamp(col, row, key(t, (side * d) / r, col, row), cov * alphaMul, pri + cov * 0.01); // coverage wins overlaps
     }
   }
 }

@@ -1,5 +1,6 @@
-import { DEFAULT_TWEAKS, type AsciiField, type AsciiFieldOptions, type Tweaks } from './types';
-import { ANIMALS, getAnimal, registerPalettes } from './animals/registry';
+import { DEFAULT_TWEAKS, type AnimalId, type AsciiField, type AsciiFieldOptions, type Tweaks } from './types';
+import { CRUMB_PAL, FOOD_PAL, isAnimalId, loadAnimal, PALETTES } from './animals/registry';
+import type { AnimalDef } from './animals/types';
 import { buildAtlas, type Atlas } from './engine/atlas';
 import { Background } from './engine/background';
 import { CellBuffer } from './engine/cellBuffer';
@@ -7,7 +8,6 @@ import { computeDim, dimRects } from './engine/dimMask';
 import { effectiveCell, makeGrid, type Grid } from './engine/grid';
 import { listenClicks, listenPointer } from './engine/input';
 import { Loop } from './engine/loop';
-import { PaletteTable } from './engine/palettes';
 import { drawFrame } from './engine/renderer';
 import { Trails } from './engine/trails';
 import { World } from './engine/world';
@@ -18,6 +18,26 @@ import { acquireStyles } from './ui/styles';
 export type { AnimalId, AsciiField, AsciiFieldOptions, Tweaks } from './types';
 
 const STILL_STEP = 1 / 60;
+
+/** Placeholder until the first animal's chunk has loaded: no entities, background only. */
+const NO_ANIMAL: AnimalDef = {
+  id: 'butterfly',
+  label: '',
+  dot: '',
+  baseCount: 0,
+  minCount: 0,
+  maxCount: 0,
+  radius: 1,
+  clickMode: 'scatter',
+  edge: 'none',
+  palettes: {},
+  pal: {},
+  spawn: () => {
+    throw new Error('no animal loaded');
+  },
+  update: () => {},
+  render: () => {},
+};
 
 export function createAsciiField(opts: AsciiFieldOptions): AsciiField {
   const host = opts.host;
@@ -35,16 +55,14 @@ export function createAsciiField(opts: AsciiFieldOptions): AsciiField {
   host.prepend(canvas);
   const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
 
-  const palettes = new PaletteTable();
-  const [foodPal, crumbPal] = registerPalettes(palettes);
   const buf = new CellBuffer();
   const trails = new Trails();
   const bg = new Background(mulberry32(seed ^ 0x5bd1e995), opts.theme ?? 'dark', tweaks.bgDensity);
-  const world = new World(getAnimal(opts.animal) ?? ANIMALS[0], mulberry32(seed), buf, trails, seed);
+  const world = new World(NO_ANIMAL, mulberry32(seed), buf, trails, seed);
   world.density = tweaks.density;
   world.countOverride = opts.count ?? 0;
-  world.foodPal = foodPal;
-  world.crumbPal = crumbPal;
+  world.foodPal = FOOD_PAL;
+  world.crumbPal = CRUMB_PAL;
   world.trailsOn = tweaks.trails;
   const debug = opts.debug ? new DebugOverlay(host) : null;
   // QA hooks (debug only): the world and a redraw, for scripted close-ups.
@@ -66,7 +84,7 @@ export function createAsciiField(opts: AsciiFieldOptions): AsciiField {
     trails.resize(grid.cols, grid.rows);
     bg.density = tweaks.bgDensity;
     bg.build(grid);
-    atlas = buildAtlas(palettes.list, grid.cell, grid.dpr);
+    atlas = buildAtlas(PALETTES.list, grid.cell, grid.dpr);
     dim = computeDim(grid, dimRects(host, dimSelector));
     world.setGrid(grid);
     world.syncCount();
@@ -108,19 +126,42 @@ export function createAsciiField(opts: AsciiFieldOptions): AsciiField {
   }
 
   layout();
-  if (stillT !== null) {
-    const steps = Math.round(stillT / STILL_STEP);
-    for (let i = 0; i < steps; i++) world.update(STILL_STEP * tweaks.speed);
-    draw();
-    debug?.update(0, {
-      animal: world.def.id,
-      entities: world.entities.length,
-      panicked: world.entities.filter((e) => e.panic > 0).length,
-      cells: buf.occN,
-      ms: lastMs,
-      grid: `${grid.cols}×${grid.rows} @${grid.cell}px`,
-    });
-  } else draw();
+  draw(); // background right away; animals arrive when their chunk has loaded
+
+  let destroyed = false;
+  let loadToken = 0;
+  let simulated = false;
+  let wanted: AnimalId | null = null; // the animal most recently asked for (it may still be loading)
+  /** Load an animal's chunk (cached), then swap it in. Later calls win over earlier ones. */
+  function show(id: AnimalId): void {
+    wanted = id;
+    const token = ++loadToken;
+    loadAnimal(id).then(
+      (def) => {
+        if (destroyed || token !== loadToken) return;
+        atlas = buildAtlas(PALETTES.list, grid.cell, grid.dpr); // now includes this animal's ramps
+        world.setAnimal(def);
+        if (stillT !== null && !simulated) {
+          // Still mode (QA screenshots / reduced motion): simulate, then draw one frame.
+          simulated = true;
+          const steps = Math.round(stillT / STILL_STEP);
+          for (let i = 0; i < steps; i++) world.update(STILL_STEP * tweaks.speed);
+        }
+        draw();
+        canvas.dataset.ready = def.id;
+        debug?.update(0, {
+          animal: world.def.id,
+          entities: world.entities.length,
+          panicked: world.entities.filter((e) => e.panic > 0).length,
+          cells: buf.occN,
+          ms: lastMs,
+          grid: `${grid.cols}×${grid.rows} @${grid.cell}px`,
+        });
+      },
+      (err) => console.warn('[ascii-field] could not load animal', id, err),
+    );
+  }
+  show(isAnimalId(opts.animal) ? opts.animal : 'butterfly');
 
   // ---------- observers & listeners ----------
   let rT = 0;
@@ -167,10 +208,8 @@ export function createAsciiField(opts: AsciiFieldOptions): AsciiField {
 
   return {
     setAnimal(id) {
-      const def = getAnimal(id);
-      if (!def || def === world.def) return;
-      world.setAnimal(def);
-      if (!loop.running) draw();
+      if (!isAnimalId(id) || id === wanted) return;
+      show(id); // M5 adds fly-out / fly-in transitions
     },
     setTweaks(t) {
       const relayout =
@@ -193,6 +232,7 @@ export function createAsciiField(opts: AsciiFieldOptions): AsciiField {
       syncRunning();
     },
     destroy() {
+      destroyed = true;
       loop.stop();
       clearTimeout(rT);
       ro.disconnect();

@@ -5,7 +5,7 @@ import { Trails } from '../src/engine/trails';
 import { makeGrid } from '../src/engine/grid';
 import { PaletteTable } from '../src/engine/palettes';
 import { World } from '../src/engine/world';
-import { ANIMALS, registerPalettes } from '../src/animals/registry';
+import { ANIMALS, registerPalettes } from '../src/animals/all';
 import { mulberry32 } from '../src/math/rng';
 
 const [id = 'crane', hArg = '-1.5708', sArg = '1'] = process.argv.slice(2);
@@ -13,7 +13,7 @@ registerPalettes(new PaletteTable());
 const def = ANIMALS.find((a) => a.id === id)!;
 const buf = new CellBuffer();
 const trails = new Trails();
-const g = makeGrid(360, 360, 9, 1);
+const g = makeGrid(+(process.env.DUMP_W ?? 360), +(process.env.DUMP_H ?? 360), 9, 1);
 buf.resize(g.cols, g.rows);
 trails.resize(g.cols, g.rows);
 const w = new World(def, mulberry32(1), buf, trails, 1);
@@ -21,7 +21,7 @@ w.countOverride = 1;
 w.setGrid(g);
 w.syncCount();
 const e = w.entities[0];
-Object.assign(e, { x: 180, y: 180, heading: +hArg, drawHeading: +hArg, scale: +sArg, panic: 0 });
+Object.assign(e, { x: g.w / 2, y: g.h / 2, heading: +hArg, drawHeading: +hArg, scale: +sArg, panic: 0 });
 w.render();
 const ramp = ' .:-=+*#%@';
 for (let r = 0; r < g.rows; r++) {

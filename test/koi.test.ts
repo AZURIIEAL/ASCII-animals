@@ -5,7 +5,7 @@ import { makeGrid } from '../src/engine/grid';
 import { PaletteTable } from '../src/engine/palettes';
 import { PELLET_LIFE, World } from '../src/engine/world';
 import { koi } from '../src/animals/koi';
-import { registerPalettes } from '../src/animals/registry';
+import { registerPalettes } from '../src/animals/all';
 import { mulberry32 } from '../src/math/rng';
 
 function koiWorld(count: number): World {

@@ -1,4 +1,4 @@
-import type { AnimalDef, CellFn, Entity, Pellet, Stamper, WorldView } from '../animals/types';
+import type { AnimalDef, CellFn, Entity, Pellet, Pointer, Stamper, WorldView } from '../animals/types';
 import type { CellBuffer } from './cellBuffer';
 import type { Grid } from './grid';
 import type { Trails } from './trails';
@@ -23,9 +23,9 @@ interface Ripple {
 }
 
 /** Entity count for an animal (§8.3). */
-export function targetCount(base: number, w: number, h: number, density: number): number {
+export function targetCount(base: number, w: number, h: number, density: number, min = 4, max = 80): number {
   const n = Math.round(((base * (w * h)) / (1920 * 1080)) * density * (w < 768 ? 0.6 : 1));
-  return Math.max(4, Math.min(80, n));
+  return Math.max(min, Math.min(max, n));
 }
 
 /** Scatter radius (§10). */
@@ -49,7 +49,10 @@ export class World implements Stamper, WorldView {
   trailsOn = true;
   /** Palette for food pellets (glyph-only cells). */
   foodPal = 0;
+  /** Palette for crumbs (tiles). */
+  crumbPal = 0;
   pellets: Pellet[] = [];
+  pointer: Pointer = { x: 0, y: 0, active: false };
   private ripples: Ripple[] = [];
   private nextId = 1;
   private spawnN = 0;
@@ -104,7 +107,8 @@ export class World implements Stamper, WorldView {
   }
 
   targetCount(): number {
-    return this.countOverride || targetCount(this.def.baseCount, this.w, this.h, this.density);
+    const d = this.def;
+    return this.countOverride || targetCount(d.baseCount, this.w, this.h, this.density, d.minCount, d.maxCount);
   }
 
   /** Grow or shrink to the target count. New entities appear at random positions. */
@@ -140,7 +144,7 @@ export class World implements Stamper, WorldView {
     for (let i = this.pellets.length - 1; i >= 0; i--) {
       const p = this.pellets[i];
       p.t += dt;
-      if (p.t > PELLET_LIFE) {
+      if (p.t > p.life) {
         this.pellets.splice(i, 1);
         continue;
       }
@@ -155,6 +159,7 @@ export class World implements Stamper, WorldView {
 
   private edges(e: Entity, dt: number): void {
     const mode = this.def.edge;
+    if (mode === 'none') return;
     const { w, h } = this;
     const k = 240 * dt; // px/s² toward the inside
     if (mode === 'soft' || mode === 'wrap-vertical') {
@@ -185,6 +190,10 @@ export class World implements Stamper, WorldView {
       this.ripple(px, py, 36, pal, 0.5);
       return;
     }
+    if (def.clickMode === 'custom') {
+      def.onClick?.(this, px, py);
+      return;
+    }
     const R = scatterRadius(this.w, this.h);
     for (const e of this.entities) {
       const dx = e.x - px;
@@ -211,7 +220,15 @@ export class World implements Stamper, WorldView {
       const a = r() * Math.PI * 2;
       const d = Math.sqrt(r()) * 24;
       const s = range(r, 2, 10);
-      this.pellets.push({ x: px + Math.cos(a) * d, y: py + Math.sin(a) * d, vx: Math.cos(a) * s, vy: Math.sin(a) * s, t: 0 });
+      this.pellets.push({
+        x: px + Math.cos(a) * d,
+        y: py + Math.sin(a) * d,
+        vx: Math.cos(a) * s,
+        vy: Math.sin(a) * s,
+        t: 0,
+        life: PELLET_LIFE,
+        kind: 0,
+      });
     }
   }
 
@@ -221,6 +238,16 @@ export class World implements Stamper, WorldView {
     this.pellets.splice(i, 1);
     const first = Object.keys(this.def.palettes)[0];
     this.ripple(p.x, p.y, 28, this.def.pal[first] ?? 0, 0.6);
+  }
+
+  takePellet(i: number): Pellet | undefined {
+    const p = this.pellets[i];
+    if (p) this.pellets.splice(i, 1);
+    return p;
+  }
+
+  addPellet(x: number, y: number, life: number, kind: 0 | 1): void {
+    this.pellets.push({ x, y, vx: 0, vy: 0, t: 0, life, kind });
   }
 
   ripple(x: number, y: number, R: number, pal: number, life = RIPPLE_LIFE): void {
@@ -242,9 +269,10 @@ export class World implements Stamper, WorldView {
     const oKey = lineKey(this.foodPal, G.o);
     const dKey = lineKey(this.foodPal, G['·']);
     for (const p of this.pellets) {
-      const age = p.t / PELLET_LIFE; // shrinks: 'o' → '·', and fades at the end
+      const age = p.t / p.life; // shrinks: 'o' → '·', and fades at the end
       const a = 0.9 * Math.min(1, (1 - age) * 4);
-      this.buf.stamp(Math.floor(p.x / c), Math.floor(p.y / c), age < 0.55 ? oKey : dKey, a, 50);
+      if (p.kind === 1) this.buf.stamp(Math.floor(p.x / c), Math.floor(p.y / c), tileKey(this.crumbPal, 0.8), a, 50);
+      else this.buf.stamp(Math.floor(p.x / c), Math.floor(p.y / c), age < 0.55 ? oKey : dKey, a, 50);
     }
   }
 

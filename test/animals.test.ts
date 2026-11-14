@@ -9,6 +9,8 @@ import { mulberry32 } from '../src/math/rng';
 
 registerPalettes(new PaletteTable());
 
+const HOLD_STILL = new Set(['snail']);
+
 function world(id: string, count = 12): { w: World; buf: CellBuffer } {
   const def = ANIMALS.find((a) => a.id === id)!;
   const buf = new CellBuffer();
@@ -24,8 +26,10 @@ function world(id: string, count = 12): { w: World; buf: CellBuffer } {
 }
 
 describe('every animal', () => {
-  it('has all seven registered with distinct palettes', () => {
-    expect(ANIMALS.map((a) => a.id)).toEqual(['butterfly', 'jellyfish', 'dragonfly', 'koi', 'frog', 'crane', 'crab']);
+  it('registers every animal once, with its palettes', () => {
+    const ids = ANIMALS.map((a) => a.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids.slice(0, 7)).toEqual(['butterfly', 'jellyfish', 'dragonfly', 'koi', 'frog', 'crane', 'crab']);
     for (const a of ANIMALS) for (const k of Object.keys(a.palettes)) expect(a.pal[k]).toBeTypeOf('number');
   });
 
@@ -40,20 +44,26 @@ describe('every animal', () => {
         expect(e.x).toBeLessThan(1600 + m + 400);
       }
       w.render();
-      expect(buf.occN).toBeGreaterThan(50 * Math.min(4, w.entities.length));
+      expect(buf.occN).toBeGreaterThanOrEqual(w.entities.length); // every animal draws something (unlit fireflies are tiny)
     });
 
-    it(`${a.id}: ${a.clickMode === 'feed' ? 'feeds instead of scattering' : 'scatters away from a click'}`, () => {
+    it(`${a.id}: reacts to a click (${a.clickMode})`, () => {
       const { w } = world(a.id, 1);
       const e = w.entities[0];
       Object.assign(e, { x: 800, y: 450, vx: 0, vy: 0, panic: 0 });
+      const pellets = w.pellets.length;
       w.click(760, 450);
       if (a.clickMode === 'feed') {
         expect(e.panic).toBe(0);
-        expect(w.pellets.length).toBeGreaterThan(0);
+        expect(w.pellets.length).toBeGreaterThan(pellets);
+        return;
+      }
+      if (a.clickMode === 'custom') {
+        for (let i = 0; i < 30; i++) w.update(1 / 60); // must not throw
         return;
       }
       expect(e.panic).toBeGreaterThan(0);
+      if (HOLD_STILL.has(a.id)) return; // e.g. snails pull into their shell instead of running
       const x0 = e.x;
       for (let i = 0; i < 30; i++) w.update(1 / 60);
       expect(e.x).toBeGreaterThan(x0); // moved away (to the right)

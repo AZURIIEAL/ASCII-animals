@@ -15,3 +15,18 @@ export function listenClicks(host: HTMLElement, onClick: (x: number, y: number) 
   host.addEventListener('pointerdown', handler);
   return () => host.removeEventListener('pointerdown', handler);
 }
+
+/** Pointer position over the host (for hover-aware animals). Listens on the host only. */
+export function listenPointer(host: HTMLElement, onMove: (x: number, y: number, active: boolean) => void): () => void {
+  const move = (ev: PointerEvent): void => {
+    const r = host.getBoundingClientRect();
+    onMove(ev.clientX - r.left - host.clientLeft, ev.clientY - r.top - host.clientTop, true);
+  };
+  const leave = (): void => onMove(0, 0, false);
+  host.addEventListener('pointermove', move);
+  host.addEventListener('pointerleave', leave);
+  return () => {
+    host.removeEventListener('pointermove', move);
+    host.removeEventListener('pointerleave', leave);
+  };
+}

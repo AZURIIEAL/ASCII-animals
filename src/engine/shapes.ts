@@ -84,3 +84,53 @@ export function aaCov(d: number, r: number): number {
   const peak = r < 0.5 ? 0.45 + 1.1 * r : 1; // a thin part never fills a whole cell
   return peak * clamp01(r + 0.55 - d);
 }
+
+/**
+ * Signed distance (cells) from (px, py) to the triangle a-b-c: negative inside.
+ * For sharp-cornered shapes such as moth forewings, manta wings and bat membranes.
+ */
+export function sdTriangle(
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  cx: number,
+  cy: number,
+): number {
+  const e0x = bx - ax;
+  const e0y = by - ay;
+  const e1x = cx - bx;
+  const e1y = cy - by;
+  const e2x = ax - cx;
+  const e2y = ay - cy;
+  const v0x = px - ax;
+  const v0y = py - ay;
+  const v1x = px - bx;
+  const v1y = py - by;
+  const v2x = px - cx;
+  const v2y = py - cy;
+  const t0 = clamp01((v0x * e0x + v0y * e0y) / (e0x * e0x + e0y * e0y));
+  const t1 = clamp01((v1x * e1x + v1y * e1y) / (e1x * e1x + e1y * e1y));
+  const t2 = clamp01((v2x * e2x + v2y * e2y) / (e2x * e2x + e2y * e2y));
+  const q0x = v0x - e0x * t0;
+  const q0y = v0y - e0y * t0;
+  const q1x = v1x - e1x * t1;
+  const q1y = v1y - e1y * t1;
+  const q2x = v2x - e2x * t2;
+  const q2y = v2y - e2y * t2;
+  const s = Math.sign(e0x * e2y - e0y * e2x);
+  const d0 = q0x * q0x + q0y * q0y;
+  const d1 = q1x * q1x + q1y * q1y;
+  const d2 = q2x * q2x + q2y * q2y;
+  const c0 = s * (v0x * e0y - v0y * e0x);
+  const c1 = s * (v1x * e1y - v1y * e1x);
+  const c2 = s * (v2x * e2y - v2y * e2x);
+  const d = Math.min(d0, d1, d2);
+  const inside = Math.min(c0, c1, c2);
+  return -Math.sqrt(d) * Math.sign(inside);
+}
+
+/** Coverage from a signed distance (cells, negative inside), anti-aliased over about one cell. */
+export const sdCov = (sd: number): number => clamp01(0.5 - sd);

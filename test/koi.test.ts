@@ -51,8 +51,8 @@ describe('koi feeding', () => {
     const e = w.entities[0];
     Object.assign(e, { x: 500, y: 500, vx: 70, vy: 0, heading: 0, drawHeading: 0, scale: 1 });
     const mouth = 5.8 * 9; // HEAD_V cells × cell px ahead of the centre
-    w.pellets.push({ x: 500 + mouth + 6, y: 500, vx: 0, vy: 0, t: 0 });
-    w.pellets.push({ x: 500 + mouth, y: 700, vx: 0, vy: 0, t: 0 }); // 200 px off: not eaten
+    w.pellets.push({ x: 500 + mouth + 6, y: 500, vx: 0, vy: 0, t: 0, life: 6, kind: 0 });
+    w.pellets.push({ x: 500 + mouth, y: 700, vx: 0, vy: 0, t: 0, life: 6, kind: 0 }); // 200 px off: not eaten
     w.update(1 / 60);
     expect(w.pellets.length).toBe(1);
     expect(w.pellets[0].y).toBe(700);
@@ -62,7 +62,7 @@ describe('koi feeding', () => {
     const w = koiWorld(1);
     const e = w.entities[0];
     Object.assign(e, { x: 500, y: 500, vx: 0, vy: -60, heading: -Math.PI / 2, drawHeading: -Math.PI / 2 });
-    w.pellets.push({ x: 800, y: 500, vx: 0, vy: 0, t: 0 });
+    w.pellets.push({ x: 800, y: 500, vx: 0, vy: 0, t: 0, life: 6, kind: 0 });
     const d0 = Math.hypot(800 - e.x, 500 - e.y);
     for (let i = 0; i < 120; i++) w.update(1 / 60);
     expect(Math.hypot(800 - e.x, 500 - e.y)).toBeLessThan(d0 - 50);

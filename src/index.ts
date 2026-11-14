@@ -5,7 +5,7 @@ import { Background } from './engine/background';
 import { CellBuffer } from './engine/cellBuffer';
 import { computeDim, dimRects } from './engine/dimMask';
 import { effectiveCell, makeGrid, type Grid } from './engine/grid';
-import { listenClicks } from './engine/input';
+import { listenClicks, listenPointer } from './engine/input';
 import { Loop } from './engine/loop';
 import { PaletteTable } from './engine/palettes';
 import { drawFrame } from './engine/renderer';
@@ -36,7 +36,7 @@ export function createAsciiField(opts: AsciiFieldOptions): AsciiField {
   const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
 
   const palettes = new PaletteTable();
-  const foodPal = registerPalettes(palettes);
+  const [foodPal, crumbPal] = registerPalettes(palettes);
   const buf = new CellBuffer();
   const trails = new Trails();
   const bg = new Background(mulberry32(seed ^ 0x5bd1e995), opts.theme ?? 'dark', tweaks.bgDensity);
@@ -44,6 +44,7 @@ export function createAsciiField(opts: AsciiFieldOptions): AsciiField {
   world.density = tweaks.density;
   world.countOverride = opts.count ?? 0;
   world.foodPal = foodPal;
+  world.crumbPal = crumbPal;
   world.trailsOn = tweaks.trails;
   const debug = opts.debug ? new DebugOverlay(host) : null;
   // QA hooks (debug only): the world and a redraw, for scripted close-ups.
@@ -156,6 +157,12 @@ export function createAsciiField(opts: AsciiFieldOptions): AsciiField {
     if (!loop.running) draw(); // still mode: show the ripple / new positions
   });
 
+  const unlistenPointer = listenPointer(host, (x, y, active) => {
+    world.pointer.x = x;
+    world.pointer.y = y;
+    world.pointer.active = active;
+  });
+
   syncRunning();
 
   return {
@@ -192,6 +199,7 @@ export function createAsciiField(opts: AsciiFieldOptions): AsciiField {
       io.disconnect();
       document.removeEventListener('visibilitychange', onVisibility);
       unlisten();
+      unlistenPointer();
       debug?.destroy();
       delete (host as QaHost).__afWorld;
       delete (host as QaHost).__afDraw;

@@ -43,6 +43,14 @@ export interface Pellet {
   vx: number;
   vy: number;
   t: number; // age, s
+  life: number; // s
+  kind: 0 | 1; // 0 = food pellet (koi), 1 = crumb (ants)
+}
+
+export interface Pointer {
+  x: number;
+  y: number;
+  active: boolean; // false when the pointer is outside the host
 }
 
 /** What an animal sees while simulating. */
@@ -55,9 +63,15 @@ export interface WorldView {
   readonly entities: readonly Entity[];
   readonly pellets: readonly Pellet[];
   readonly trailsOn: boolean;
+  readonly pointer: Pointer;
+  /** Palette index for crumb tiles. */
+  readonly crumbPal: number;
   newEntity(): Entity;
   /** Remove pellet i (eaten) and leave a small ripple ring. */
   eatPellet(i: number): void;
+  /** Remove pellet i silently (picked up) and return it. */
+  takePellet(i: number): Pellet | undefined;
+  addPellet(x: number, y: number, life: number, kind: 0 | 1): void;
   ripple(x: number, y: number, R: number, pal: number, life?: number): void;
 }
 
@@ -67,8 +81,13 @@ export interface AnimalDef {
   dot: string;
   baseCount: number;
   radius: number; // bounding radius, cells at scale 1
-  clickMode: 'scatter' | 'feed';
-  edge: 'wrap' | 'soft' | 'wrap-vertical';
+  /** scatter: nearby animals flee · feed: drop pellets · custom: `onClick` handles it. */
+  clickMode: 'scatter' | 'feed' | 'custom';
+  /** Count clamp (default [4, 80]); e.g. one whale. */
+  minCount?: number;
+  maxCount?: number;
+  /** none: the animal keeps itself inside the host. */
+  edge: 'wrap' | 'soft' | 'wrap-vertical' | 'none';
   palettes: Record<string, string[]>;
   /** Optional ramp position for each palette's glyph-only cells (default 0.7). */
   lineShade?: Record<string, number>;
@@ -78,4 +97,6 @@ export interface AnimalDef {
   update(e: Entity, dt: number, world: WorldView): void;
   render(e: Entity, s: Stamper, world: WorldView): void;
   onScatter?(e: Entity, fromX: number, fromY: number, strength: number): void;
+  /** clickMode 'custom': handle a click at (x, y) in host px. */
+  onClick?(world: WorldView, x: number, y: number): void;
 }

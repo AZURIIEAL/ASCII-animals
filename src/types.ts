@@ -1,4 +1,22 @@
-export type AnimalId = 'butterfly' | 'jellyfish' | 'dragonfly' | 'koi' | 'frog' | 'crane' | 'crab';
+export type AnimalId =
+  | 'butterfly'
+  | 'jellyfish'
+  | 'dragonfly'
+  | 'koi'
+  | 'frog'
+  | 'crane'
+  | 'crab'
+  | 'firefly'
+  | 'moth'
+  | 'sardine'
+  | 'ant'
+  | 'snail'
+  | 'snake'
+  | 'octopus'
+  | 'manta'
+  | 'spider'
+  | 'bat'
+  | 'whale';
 
 export interface Tweaks {
   density: number; // animal count multiplier, 0.25–2, default 1

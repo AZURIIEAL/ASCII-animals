@@ -111,6 +111,23 @@ describe('switching animals', () => {
     w.render();
   });
 
+  it('slow animals glide in: every arrival is on screen within 2 s (0.6 s stagger + 1.2 s glide)', async () => {
+    const { manta } = await import('../src/animals/manta');
+    const { jellyfish } = await import('../src/animals/jellyfish');
+    for (const def of [manta, jellyfish]) {
+      const w = makeWorld(butterfly, 10);
+      w.setAnimal(def, true);
+      for (let i = 0; i < 120; i++) w.update(1 / 60);
+      const slack = 120; // px: a wide animal near an edge still shows most of its body
+      for (const e of w.entities) {
+        expect(e.x).toBeGreaterThan(-slack);
+        expect(e.x).toBeLessThan(w.w + slack);
+        expect(e.y).toBeGreaterThan(-slack);
+        expect(e.y).toBeLessThan(w.h + slack);
+      }
+    }
+  });
+
   it('switches instantly without a transition', () => {
     const w = makeWorld(butterfly, 6);
     w.setAnimal(butterfly, false);

@@ -21,6 +21,10 @@ export interface Entity {
   exiting?: boolean;
   /** Direction (radians) a leaving entity heads off-screen. */
   exitA?: number;
+  /** Fly-in glide (set by the world when an animal arrives from off-screen): px/s, direction, s left. */
+  arriveV?: number;
+  arriveA?: number;
+  arriveT?: number;
   data?: unknown;
 }
 

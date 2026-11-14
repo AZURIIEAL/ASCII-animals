@@ -14,6 +14,7 @@ export const PELLET_LIFE = 6; // s
 export const EXIT_TIME = 0.8; // s: leaving animals fade out over this (§12)
 export const ARRIVE_TIME = 0.6; // s: new animals are staggered in over this
 const EXIT_SPEED = 220; // px/s added toward the nearest edge
+const GLIDE_TIME = 1.2; // s an arriving animal glides in from off-screen
 
 interface Leaving {
   def: AnimalDef;
@@ -185,7 +186,16 @@ export class World implements Stamper, WorldView {
       this.arriveT += dt;
       const want = Math.ceil(this.arriveTotal * Math.min(1, this.arriveT / ARRIVE_TIME));
       while (this.arrived < want) {
-        this.entities.push(def.spawn(this, this.spawnRng(), true));
+        const e = def.spawn(this, this.spawnRng(), true);
+        // Glide in, so slow animals don't take ages to appear: cover the distance outside plus a bit,
+        // with a push that fades linearly over GLIDE_TIME (distance = v · T / 2).
+        const out = Math.max(-e.x, e.x - this.w, -e.y, e.y - this.h);
+        if (out > 0) {
+          e.arriveV = (2 * (out + 90)) / GLIDE_TIME;
+          e.arriveA = e.heading;
+          e.arriveT = GLIDE_TIME;
+        }
+        this.entities.push(e);
         this.arrived++;
       }
     }
@@ -208,6 +218,12 @@ export class World implements Stamper, WorldView {
     }
     for (const e of this.entities) {
       def.update(e, dt, this);
+      if (e.arriveT && e.arriveT > 0) {
+        const k = (e.arriveV ?? 0) * (e.arriveT / GLIDE_TIME) * dt;
+        e.x += Math.cos(e.arriveA ?? 0) * k;
+        e.y += Math.sin(e.arriveA ?? 0) * k;
+        e.arriveT -= dt;
+      }
       e.panic = Math.max(0, e.panic - dt * PANIC_DECAY);
       this.edges(e, dt);
     }

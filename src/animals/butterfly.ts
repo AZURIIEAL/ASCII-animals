@@ -13,41 +13,41 @@ export const butterflySprite: Sprite = {
     a: { color: '#1d4ed8', glyph: '#' },
     b: { color: '#3b82f6', glyph: '+' },
     c: { color: '#93c5fd', glyph: '*' },
-    k: { color: '#94a3b8', glyph: '|' },
+    k: { color: '#94a3b8', glyph: ':', alpha: 0.55 },
   },
   frames: [
     [
       // open
-      '.aaa.....aaa.',
+      '.....k.k.....',
+      '.aab..k..baa.',
       'abbba.k.abbba',
-      'abbcbakabcbba',
-      '.abbbakabbba.',
-      '..aaaakaaaa..',
-      '..abbakabba..',
-      '.abca.k.acba.',
-      '.aaa.....aaa.',
+      'abcbbakabbcba',
+      '.abba.k.abba.',
+      '..a...k...a..',
+      '.abba.k.abba.',
+      '..aa.....aa..',
     ],
     [
       // half
-      '..aa.....aa..',
-      '.abbba.k.abb.',
+      '.....k.k.....',
+      '..aab.k.baa..',
+      '.abbbakabbba.',
+      '.abcbakabcba.',
       '..abbakabba..',
-      '...abakaba...',
-      '...aaakaaa...',
-      '...abakaba...',
-      '..abba.k.ab..',
-      '...aa.....a..',
+      '...a..k..a...',
+      '..abb.k.bba..',
+      '...aa...aa...',
     ],
     [
-      // closed (wings up)
-      '....aa.aa....',
+      // closed
+      '.....k.k.....',
+      '....abkba....',
       '...abbkbba...',
       '...abckcba...',
       '....abkba....',
+      '....a.k.a....',
       '....abkba....',
-      '...abbkbba...',
-      '....aakaa....',
-      '.............',
+      '.....a.a.....',
     ],
   ],
 };
@@ -83,7 +83,9 @@ export const butterfly: AnimalDef = {
 
   spawn(world: World, rng: Rng, fromEdge: boolean): Entity {
     const e = makeEntity({
-      scale: rng.range(0.8, 1.5),
+      // Spec §6.3 says 0.8–1.5, but at cellSize 12 that renders much larger than
+      // the reference art; this range matches its proportions.
+      scale: rng.range(0.6, 1.1),
       phase: rng.range(0, 100),
       heading: rng.range(-Math.PI, Math.PI),
       state: 'fly',

@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ASCII Animals — demo</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; background: #0a0a0c; }
+      body {
+        font: 16px/1.5 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        color: #e5e7eb;
+      }
+      #hero {
+        position: relative;
+        overflow: hidden;
+        min-height: 100svh;
+        display: grid;
+        place-items: center;
+      }
+      .hero-content {
+        position: relative;
+        z-index: 1;
+        text-align: center;
+        padding: 24px;
+        max-width: 42rem;
+      }
+      .hero-content h1 { font-size: clamp(2rem, 6vw, 3.5rem); margin: 0 0 0.5rem; }
+      .hero-content p { margin: 0 0 1rem; color: #a1a1aa; }
+      .hero-content a { color: #93c5fd; }
+    </style>
+  </head>
+  <body>
+    <section id="hero">
+      <div class="hero-content" data-af-dim>
+        <h1>Abin Binu</h1>
+        <p>Ambient ASCII animals, drawn one character cell at a time.</p>
+        <p><a href="#hero">a link — clicking this must not scatter</a></p>
+      </div>
+    </section>
+
+    <script type="module">
+      import { createAsciiField } from './src/index.ts';
+
+      const host = document.getElementById('hero');
+      const params = new URLSearchParams(location.search);
+
+      if (params.has('stress')) {
+        // Mount and destroy 20 times, then report what is left behind.
+        const before = document.querySelectorAll('*').length;
+        for (let i = 0; i < 20; i++) {
+          const field = createAsciiField({ host, seed: 1234 + i });
+          field.destroy();
+        }
+        const after = document.querySelectorAll('*').length;
+        console.log('[stress] nodes before %d, after %d, leftover af-* nodes: %d',
+          before, after, host.querySelectorAll('[class^="af-"]').length);
+      }
+
+      const start = () => createAsciiField({ host, debug: params.has('debug') });
+      'requestIdleCallback' in window ? requestIdleCallback(start) : setTimeout(start, 200);
+    </script>
+  </body>
+</html>

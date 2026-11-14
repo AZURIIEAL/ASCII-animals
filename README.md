@@ -25,7 +25,7 @@ Videos (WebM, open in a browser):
 
 | Animal | How it lives | When you click |
 | :-- | :-- | :-- |
-| Butterfly | Flutters on a wandering path, wings beating | Scatters away from the click |
+| Butterfly | Three species in one flock (blue morpho, monarch, tiger swallowtail), each with its real wing pattern; flaps with the hindwings a beat behind, and glides on spread wings now and then | Scatters away from the click |
 | Jellyfish | Pulses upward and drifts, tentacles trailing and leaving a faint glow | Scatters, tentacles streaming behind |
 | Dragonfly | Hovers, then darts, on translucent wings, leaving a trail | Darts away at high speed |
 | Koi | Glides through the pond in several colour varieties | Drops food pellets that the fish race to eat |

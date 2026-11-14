@@ -227,7 +227,7 @@ export const antDef: AnimalDef = {
     };
     e.data = d;
     e.speed = range(rng, 34, 52);
-    e.scale = range(rng, 2.7, 3.1);
+    e.scale = range(rng, 2.1, 3.5);
     e.seed = range(rng, 0, 1000);
     e.phase = range(rng, 0, 10);
     pathAt(paths[path], d.p);

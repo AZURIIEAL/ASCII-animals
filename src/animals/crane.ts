@@ -168,7 +168,7 @@ export const crane: AnimalDef = {
     }
     const data: CraneData = { leader, slot: 0, span: 1, flapping: false, cycle: range(rng, 0.6, 0.9), left: 0 };
     e.data = data;
-    e.scale = range(rng, 0.95, 1.3);
+    e.scale = range(rng, 0.8, 1.4);
     e.seed = range(rng, 0, 1000);
     e.state = 'glide';
     e.stateT = range(rng, 1, 3);

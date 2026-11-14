@@ -121,7 +121,7 @@ export const moth: AnimalDef = {
     e.speed = range(rng, 45, 75);
     e.rate = range(rng, 6, 9); // flap Hz: quicker than a butterfly
     e.phase = range(rng, 0, 10);
-    e.scale = range(rng, 1.35, 1.65);
+    e.scale = range(rng, 1.05, 1.85);
     e.seed = range(rng, 0, 1000);
     e.stateT = range(rng, 0, Math.PI * 2); // orbit angle around the lamp
     if (fromEdge) placeAtEdge(e, world, rng, RADIUS * e.scale * world.cell);

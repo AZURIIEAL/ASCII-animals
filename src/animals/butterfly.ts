@@ -76,7 +76,7 @@ export const butterfly: AnimalDef = {
     e.speed = range(rng, 36, 62);
     e.phase = range(rng, 0, 10);
     e.rate = range(rng, 3.4, 4.8);
-    e.scale = range(rng, 0.75, 1.3);
+    e.scale = range(rng, 0.65, 1.45);
     e.seed = range(rng, 0, 1000);
     if (fromEdge) placeAtEdge(e, world, rng, SPAN * e.scale * world.cell);
     e.drawHeading = e.heading;

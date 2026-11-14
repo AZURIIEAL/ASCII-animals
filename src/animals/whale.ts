@@ -1,6 +1,6 @@
 import type { AnimalDef, Entity, Stamper, WorldView } from './types';
 import { localToWorld, placeAtEdge } from './common';
-import { capsule, clamp01, ellipse, G, sdCov, smooth } from '../engine/shapes';
+import { capsule, clamp01, ellipse, G, sdCov, sdTriangle, smooth } from '../engine/shapes';
 import { hash2, range } from '../math/rng';
 import { vnoise, vnoise2 } from '../math/noise';
 import { angleDiff, approach } from '../math/vec2';
@@ -34,13 +34,15 @@ function halfWidth(v: number): number {
   const t = (v - HEAD) / (TAIL - HEAD); // 0 head … 1 tail
   if (t < 0) return 0;
   if (t > 1) return 0;
-  if (t < 0.12) return 5.6 * Math.sqrt(t / 0.12) * (0.8 + 0.2 * (t / 0.12));
-  if (t < 0.38) return 5.6 + 1.6 * Math.sin(((t - 0.12) / 0.26) * (Math.PI / 2));
-  return 7.2 * Math.pow(1 - (t - 0.38) / 0.62, 1.15) + 0.9;
+  if (t < 0.12) return 4.8 * Math.sqrt(t / 0.12) * (0.8 + 0.2 * (t / 0.12));
+  if (t < 0.38) return 4.8 + 1.3 * Math.sin(((t - 0.12) / 0.26) * (Math.PI / 2));
+  return 6.1 * Math.pow(1 - (t - 0.38) / 0.62, 1.2) + 0.8;
 }
 
 /** Lateral offset of the spine at v (the tail end sways a little as it swims). */
 const spineU = (v: number): number => sway * Math.pow(clamp01((v - 0) / (TAIL - 0)), 2) * 2.2;
+
+const fract = (x: number): number => x - Math.floor(x);
 
 function cellFn(u: number, v: number, col: number, row: number): void {
   const z = cur.z;
@@ -53,67 +55,94 @@ function cellFn(u: number, v: number, col: number, row: number): void {
     const dn = ax / hw; // 0 spine … 1 flank edge
     const cov = sdCov((ax - hw) * 1.1);
     if (cov > 0.04) {
-      let sh = 0.42 + 0.18 * (1 - dn * dn); // rounded back
-      sh += 0.08 * Math.sin(v * 0.18 - cur.phase * 0.6) * (1 - dn); // a sheen rolling along the back
-      sh += (vnoise2(u * 0.35 + cur.seed, v * 0.35) - 0.5) * 0.16; // mottling
-      if (hash2(Math.floor(u * 0.8) + 3, Math.floor(v * 0.4) + cur.id * 7) > 0.93 && dn < 0.8) sh = 0.72; // pale scars
-      // Head: knobbly tubercles and the twin blowholes.
-      if (v < HEAD + 7 && hash2(col * 3 + 7, row * 5) > 0.82 && dn < 0.75) sh += 0.16;
-      const bx = ax - 0.75;
-      const by = v - (HEAD + 8.5);
-      if (bx * bx + by * by < 0.35) sh = 0.04;
-      // Small dorsal hump two-thirds back.
-      const dh = ellipse(cu, v, 0, 9.5, 0.9, 2.4, 0);
-      if (dh < 1) sh = 0.22 + 0.15 * (1 - dh);
-      sh -= 0.32 * smooth(0.7, 1.0, dn) * sh; // flank shade
-      S.stamp(col, row, S.tileKey(pal, sh), cov, z + 0.4);
+      let p = pal;
+      // Rounded back lit from the upper left, darker toward the flanks.
+      let sh = 0.46 + 0.3 * (1 - dn * dn) - 0.08 * (cu / hw);
+      sh += 0.06 * Math.sin(v * 0.16 - cur.phase * 0.6) * (1 - dn); // a sheen rolling along the back
+      sh += (vnoise2(u * 0.22 + cur.seed, v * 0.22) - 0.5) * 0.14; // broad mottling
+      sh += (vnoise2(u * 0.7 + 40, v * 0.7 + cur.seed) - 0.5) * 0.07; // fine mottling
+      // Head: rows of pale knobs (tubercles) along the rostrum, and the twin blowholes behind them.
+      const hv = v - HEAD;
+      if (hv < 8 && dn < 0.8) {
+        const kx = fract(cu / 1.3 + 0.5) - 0.5;
+        const ky = fract(hv / 1.5) - 0.5;
+        if (kx * kx + ky * ky < 0.05) {
+          p = palPale;
+          sh = 0.5;
+        }
+      }
+      const bx = ax - 0.6;
+      const by = v - (HEAD + 9.2);
+      if (bx * bx * 4 + by * by < 0.3) {
+        p = pal;
+        sh = 0.04;
+      }
+      // Sparse pale barnacle spots and scars.
+      if (dn < 0.9 && hash2(col * 3 + 7, row * 5 + cur.id) > (hv < 10 ? 0.95 : 0.985)) {
+        p = palPale;
+        sh = 0.35;
+      }
+      // Small dorsal fin on a hump, then a row of knuckles down the tail stock.
+      const dh = ellipse(cu, v, 0, 9.5, 0.95, 2.2, 0);
+      if (dh < 1) sh += 0.12 * (1 - dh) * (cu < 0 ? 1 : -0.6);
+      else if (v > 12 && ax < 0.45 && fract(v / 1.8) < 0.45) sh += 0.1;
+      sh -= 0.3 * smooth(0.75, 1.02, dn) * sh; // flank shade
+      S.stamp(col, row, S.tileKey(p, sh), cov, z + 0.4);
       if (cov > 0.6) return;
     }
   }
 
-  // ---- pectoral fins: very long, narrow, white-edged, swept back ----
-  if (v > HEAD + 6 && v < 4) {
-    const rootU = 5.4;
-    const rootV = HEAD + 10;
-    const tipU = 17.5 + fin * 1.2;
-    const tipV = HEAD + 22 + fin * 1.5;
-    const t = clamp01(((ax - rootU) * (tipU - rootU) + (v - rootV) * (tipV - rootV)) / ((tipU - rootU) ** 2 + (tipV - rootV) ** 2));
-    const r = 1.7 * (1 - t) + 0.45;
-    const d = capsule(ax, v, rootU, rootV, tipU, tipV);
-    const cov = sdCov((d - r) * 1.2);
+  // ---- pectoral fins: very long and pale, with a scalloped leading edge, swept back ----
+  if (v > HEAD + 7 && v < 12) {
+    const rootU = 4.4;
+    const rootV = HEAD + 11;
+    const tipU = 18.0 + fin * 1.0;
+    const tipV = HEAD + 27 + fin * 1.8;
+    const ex = tipU - rootU;
+    const ey = tipV - rootV;
+    const t0 = clamp01(((ax - rootU) * ex + (v - rootV) * ey) / (ex * ex + ey * ey));
+    // Bow the fin backward in the middle (a gentle curve, like a humpback's).
+    const bow = 1.6 * Math.sin(Math.PI * t0);
+    const fv = v - bow;
+    const t = clamp01(((ax - rootU) * ex + (fv - rootV) * ey) / (ex * ex + ey * ey));
+    const lead = (ax - rootU) * ey - (fv - rootV) * ex < 0;
+    const knob = lead ? 0.3 * Math.max(0, Math.sin(t * 30)) * (1 - t) : 0;
+    const r = 2.2 * (1 - t) * (0.6 + 0.4 * Math.sqrt(1 - t)) + 0.4 + knob;
+    const d = capsule(ax, fv, rootU, rootV, tipU, tipV);
+    const cov = sdCov((d - r) * 1.3);
     if (cov > 0.04) {
-      // Knobbly leading edge (tubercles) and pale undersides showing at the edge.
-      const lead = (ax - rootU) * (tipV - rootV) - (v - rootV) * (tipU - rootU) < 0;
-      let p = pal;
-      let sh = 0.36 + 0.14 * (1 - d / r);
-      if (d > r - 0.55) {
-        p = palPale;
-        sh = lead && (Math.floor(t * 9) & 1) === 0 ? 0.9 : 0.7;
-      }
+      // Dark near the body, washing out to white toward the tip, with grey mottles.
+      let sh = 0.42 + 0.45 * smooth(0.05, 0.5, t) + 0.12 * (1 - d / r);
+      sh -= (vnoise2(ax * 0.9 + cur.seed, v * 0.9) > 0.68 ? 0.25 : 0) * smooth(0.1, 0.4, t);
+      const p = t < 0.12 ? pal : palPale;
+      if (t < 0.12) sh = 0.5 + 0.15 * (1 - d / r);
+      sh -= 0.3 * smooth(0.55, 1, d / r) * sh; // edge
       S.stamp(col, row, S.tileKey(p, sh), cov, z + 0.2);
       return;
     }
   }
 
-  // ---- flukes: two broad lobes with a notch, beating ----
+  // ---- flukes: two broad pointed lobes with a centre notch and a ragged pale trailing edge ----
   if (v > TAIL - 3) {
-    const fv = v - TAIL - 0.5;
-    const span = 1 - 0.25 * Math.abs(beat); // lobes foreshorten as they beat up/down
+    const fv = v - TAIL + 0.6;
+    const span = 1 - 0.22 * Math.abs(beat); // lobes foreshorten as they beat up/down
     const lx = ax / span;
-    const e = Math.min(
-      ellipse(lx, fv, 5.4, 1.6 + beat * 0.6, 5.6, 1.6, 0.32),
-      ellipse(lx, fv, 2.2, 0.6, 2.4, 1.4, 0.2),
-    );
-    if (ax < 0.5 && fv > 1.4) return; // the notch
-    if (e < 1.12) {
-      const trailing = fv > 1.6 + 0.35 * lx * 0.32;
+    const lv = fv - beat * 0.5 * (lx / 9);
+    let sd = sdTriangle(lx, lv, 0.2, -1.4, 10.5, 5.6, 0.6, 4.6) - 0.5;
+    // Concave trailing edge and the notch.
+    const sc = 4.6 - Math.hypot(lx - 5.4, lv - 9.4);
+    if (sc > sd) sd = sc;
+    if (lx < 0.6 && lv > 3.0) sd = Math.max(sd, 0.6 - lx);
+    if (sd < 0.6) {
       let p = pal;
-      let sh = 0.34 + 0.12 * (1 - clamp01(e));
-      if (trailing && e > 0.7 && (Math.floor(lx * 1.4) & 1) === 0) {
-        p = palPale; // serrated pale trailing edge
-        sh = 0.8;
+      let sh = 0.5 + 0.15 * smooth(0, -1.5, sd);
+      // Pale underside showing along the serrated trailing edge.
+      if (sd > -0.7 && lv > 2.0 + lx * 0.3 && fract(lx * 0.9) < 0.6) {
+        p = palPale;
+        sh = 0.55;
       }
-      S.stamp(col, row, S.tileKey(p, sh), sdCov((e - 1) * 4), z + 0.3);
+      sh += (vnoise2(lx * 0.6 + cur.seed, lv * 0.6) - 0.5) * 0.1;
+      S.stamp(col, row, S.tileKey(p, sh), sdCov(sd), z + 0.3);
     }
   }
 }

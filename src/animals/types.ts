@@ -70,6 +70,8 @@ export interface AnimalDef {
   clickMode: 'scatter' | 'feed';
   edge: 'wrap' | 'soft' | 'wrap-vertical';
   palettes: Record<string, string[]>;
+  /** Optional ramp position for each palette's glyph-only cells (default 0.7). */
+  lineShade?: Record<string, number>;
   /** Filled at registration: palette name → global palette index. */
   pal: Record<string, number>;
   spawn(world: WorldView, rng: Rng, fromEdge: boolean): Entity;

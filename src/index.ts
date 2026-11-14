@@ -40,7 +40,7 @@ export function createAsciiField(opts: AsciiFieldOptions): AsciiField {
   const buf = new CellBuffer();
   const trails = new Trails();
   const bg = new Background(mulberry32(seed ^ 0x5bd1e995), opts.theme ?? 'dark', tweaks.bgDensity);
-  const world = new World(getAnimal(opts.animal) ?? ANIMALS[0], mulberry32(seed), buf, trails);
+  const world = new World(getAnimal(opts.animal) ?? ANIMALS[0], mulberry32(seed), buf, trails, seed);
   world.density = tweaks.density;
   world.countOverride = opts.count ?? 0;
   world.foodPal = foodPal;

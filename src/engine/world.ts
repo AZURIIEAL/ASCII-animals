@@ -4,7 +4,7 @@ import type { Grid } from './grid';
 import type { Trails } from './trails';
 import { lineKey, tileKey } from './atlas';
 import { G, lineGlyph, type LineGlyph } from './shapes';
-import { range, type Rng } from '../math/rng';
+import { hash2, mulberry32, range, type Rng } from '../math/rng';
 
 export const PANIC_DECAY = 0.8; // per second
 const RIPPLE_GROW = 0.35; // s
@@ -52,13 +52,23 @@ export class World implements Stamper, WorldView {
   pellets: Pellet[] = [];
   private ripples: Ripple[] = [];
   private nextId = 1;
+  private spawnN = 0;
 
   constructor(
     public def: AnimalDef,
     readonly rng: Rng,
     private buf: CellBuffer,
     private trails: Trails,
+    private seed = 1,
   ) {}
+
+  /**
+   * A fresh generator per spawn. Drawing a fixed number of values per entity from one
+   * mulberry32 stream correlates badly (e.g. stride 9 from seed 7 puts every y near an edge).
+   */
+  spawnRng(): Rng {
+    return mulberry32((hash2(this.seed, ++this.spawnN) * 4294967296) | 0);
+  }
 
   setGrid(g: Grid): void {
     this.w = g.w;
@@ -100,7 +110,7 @@ export class World implements Stamper, WorldView {
   /** Grow or shrink to the target count. New entities appear at random positions. */
   syncCount(): void {
     const n = this.targetCount();
-    while (this.entities.length < n) this.entities.push(this.def.spawn(this, this.rng, false));
+    while (this.entities.length < n) this.entities.push(this.def.spawn(this, this.spawnRng(), false));
     if (this.entities.length > n) this.entities.length = n;
   }
 
@@ -146,12 +156,14 @@ export class World implements Stamper, WorldView {
   private edges(e: Entity, dt: number): void {
     const mode = this.def.edge;
     const { w, h } = this;
+    const k = 240 * dt; // px/s² toward the inside
+    if (mode === 'soft' || mode === 'wrap-vertical') {
+      if (e.x < SOFT_BAND) e.vx += k * Math.min(2, 1 - e.x / SOFT_BAND);
+      else if (e.x > w - SOFT_BAND) e.vx -= k * Math.min(2, 1 - (w - e.x) / SOFT_BAND);
+    }
     if (mode === 'soft') {
-      const k = 240 * dt; // px/s² toward the inside
-      if (e.x < SOFT_BAND) e.vx += k * (1 - e.x / SOFT_BAND);
-      else if (e.x > w - SOFT_BAND) e.vx -= k * (1 - (w - e.x) / SOFT_BAND);
-      if (e.y < SOFT_BAND) e.vy += k * (1 - e.y / SOFT_BAND);
-      else if (e.y > h - SOFT_BAND) e.vy -= k * (1 - (h - e.y) / SOFT_BAND);
+      if (e.y < SOFT_BAND) e.vy += k * Math.min(2, 1 - e.y / SOFT_BAND);
+      else if (e.y > h - SOFT_BAND) e.vy -= k * Math.min(2, 1 - (h - e.y) / SOFT_BAND);
       return;
     }
     const m = this.def.radius * e.scale * this.cell;

@@ -37,6 +37,14 @@ export interface Stamper {
   trail(col: number, row: number, value: number, pal: number, tau: number): void;
 }
 
+export interface Pellet {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  t: number; // age, s
+}
+
 /** What an animal sees while simulating. */
 export interface WorldView {
   readonly w: number;
@@ -45,7 +53,12 @@ export interface WorldView {
   readonly t: number; // simulated seconds
   readonly rng: Rng;
   readonly entities: readonly Entity[];
+  readonly pellets: readonly Pellet[];
+  readonly trailsOn: boolean;
   newEntity(): Entity;
+  /** Remove pellet i (eaten) and leave a small ripple ring. */
+  eatPellet(i: number): void;
+  ripple(x: number, y: number, R: number, pal: number, life?: number): void;
 }
 
 export interface AnimalDef {

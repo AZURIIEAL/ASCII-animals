@@ -1,15 +1,17 @@
-import type { AnimalDef, CellFn, Entity, Stamper, WorldView } from '../animals/types';
+import type { AnimalDef, CellFn, Entity, Pellet, Stamper, WorldView } from '../animals/types';
 import type { CellBuffer } from './cellBuffer';
 import type { Grid } from './grid';
 import type { Trails } from './trails';
 import { lineKey, tileKey } from './atlas';
 import { G, lineGlyph, type LineGlyph } from './shapes';
-import type { Rng } from '../math/rng';
+import { range, type Rng } from '../math/rng';
 
 export const PANIC_DECAY = 0.8; // per second
 const RIPPLE_GROW = 0.35; // s
 const RIPPLE_LIFE = 0.45; // s
 const SOFT_BAND = 60; // px
+export const PELLET_LIFE = 6; // s
+export const EAT_RADIUS = 10; // px
 
 interface Ripple {
   x: number;
@@ -17,6 +19,7 @@ interface Ripple {
   t: number;
   R: number;
   pal: number;
+  life: number;
 }
 
 /** Entity count for an animal (§8.3). */
@@ -43,6 +46,10 @@ export class World implements Stamper, WorldView {
   rows = 1;
   density = 1;
   countOverride = 0;
+  trailsOn = true;
+  /** Palette for food pellets (glyph-only cells). */
+  foodPal = 0;
+  pellets: Pellet[] = [];
   private ripples: Ripple[] = [];
   private nextId = 1;
 
@@ -101,6 +108,7 @@ export class World implements Stamper, WorldView {
   setAnimal(def: AnimalDef): void {
     this.def = def;
     this.entities.length = 0;
+    this.pellets.length = 0;
     this.trails.clear();
     this.syncCount();
   }
@@ -116,7 +124,21 @@ export class World implements Stamper, WorldView {
       this.edges(e, dt);
     }
     for (let i = this.ripples.length - 1; i >= 0; i--) {
-      if ((this.ripples[i].t += dt) > RIPPLE_LIFE) this.ripples.splice(i, 1);
+      const r = this.ripples[i];
+      if ((r.t += dt) > r.life) this.ripples.splice(i, 1);
+    }
+    for (let i = this.pellets.length - 1; i >= 0; i--) {
+      const p = this.pellets[i];
+      p.t += dt;
+      if (p.t > PELLET_LIFE) {
+        this.pellets.splice(i, 1);
+        continue;
+      }
+      const k = Math.exp(-dt * 0.6); // drift slows down
+      p.vx *= k;
+      p.vy *= k;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
     }
     this.trails.decay(dt);
   }
@@ -141,28 +163,56 @@ export class World implements Stamper, WorldView {
     else if (e.y > h + m) e.y -= h + 2 * m;
   }
 
-  /** Click at (px, py) in host px. Scatter-mode animals flee; feed mode is handled per animal (M3). */
+  /** Click at (px, py) in host px. Scatter mode: nearby animals flee. Feed mode: drop pellets. */
   click(px: number, py: number): void {
     const def = this.def;
-    const R = scatterRadius(this.w, this.h);
-    if (def.clickMode === 'scatter') {
-      for (const e of this.entities) {
-        const dx = e.x - px;
-        const dy = e.y - py;
-        const d = Math.sqrt(dx * dx + dy * dy);
-        if (d >= R) continue;
-        const k = (1 - d / R) ** 2;
-        const nx = d ? dx / d : 1;
-        const ny = d ? dy / d : 0;
-        e.vx += nx * 900 * k;
-        e.vy += ny * 900 * k;
-        e.heading = Math.atan2(ny, nx); // keep fleeing, don't turn straight back
-        e.panic = Math.max(e.panic, k);
-        def.onScatter?.(e, px, py, k);
-      }
-    }
     const first = Object.keys(def.palettes)[0];
-    this.ripples.push({ x: px, y: py, t: 0, R, pal: def.pal[first] ?? 0 });
+    const pal = def.pal[first] ?? 0;
+    if (def.clickMode === 'feed') {
+      this.dropFood(px, py);
+      this.ripple(px, py, 36, pal, 0.5);
+      return;
+    }
+    const R = scatterRadius(this.w, this.h);
+    for (const e of this.entities) {
+      const dx = e.x - px;
+      const dy = e.y - py;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d >= R) continue;
+      const k = (1 - d / R) ** 2;
+      const nx = d ? dx / d : 1;
+      const ny = d ? dy / d : 0;
+      e.vx += nx * 900 * k;
+      e.vy += ny * 900 * k;
+      e.heading = Math.atan2(ny, nx); // keep fleeing, don't turn straight back
+      e.panic = Math.max(e.panic, k);
+      def.onScatter?.(e, px, py, k);
+    }
+    this.ripple(px, py, R, pal);
+  }
+
+  /** 6–12 pellets within 24 px of the click, drifting outward a little. */
+  dropFood(px: number, py: number): void {
+    const r = this.rng;
+    const n = 6 + Math.floor(r() * 7);
+    for (let i = 0; i < n; i++) {
+      const a = r() * Math.PI * 2;
+      const d = Math.sqrt(r()) * 24;
+      const s = range(r, 2, 10);
+      this.pellets.push({ x: px + Math.cos(a) * d, y: py + Math.sin(a) * d, vx: Math.cos(a) * s, vy: Math.sin(a) * s, t: 0 });
+    }
+  }
+
+  eatPellet(i: number): void {
+    const p = this.pellets[i];
+    if (!p) return;
+    this.pellets.splice(i, 1);
+    const first = Object.keys(this.def.palettes)[0];
+    this.ripple(p.x, p.y, 28, this.def.pal[first] ?? 0, 0.6);
+  }
+
+  ripple(x: number, y: number, R: number, pal: number, life = RIPPLE_LIFE): void {
+    this.ripples.push({ x, y, t: 0, R, pal, life });
   }
 
   // ---------- rendering ----------
@@ -172,13 +222,26 @@ export class World implements Stamper, WorldView {
     const def = this.def;
     for (const e of this.entities) def.render(e, this, this);
     this.renderRipples();
+    this.renderPellets();
+  }
+
+  private renderPellets(): void {
+    const c = this.cell;
+    const oKey = lineKey(this.foodPal, G.o);
+    const dKey = lineKey(this.foodPal, G['·']);
+    for (const p of this.pellets) {
+      const age = p.t / PELLET_LIFE; // shrinks: 'o' → '·', and fades at the end
+      const a = 0.9 * Math.min(1, (1 - age) * 4);
+      this.buf.stamp(Math.floor(p.x / c), Math.floor(p.y / c), age < 0.55 ? oKey : dKey, a, 50);
+    }
   }
 
   private renderRipples(): void {
     const c = this.cell;
     for (const rp of this.ripples) {
-      const rad = rp.R * Math.min(1, rp.t / RIPPLE_GROW);
-      const a = 0.5 * (1 - rp.t / RIPPLE_LIFE);
+      const grow = rp.life * (RIPPLE_GROW / RIPPLE_LIFE);
+      const rad = rp.R * Math.min(1, rp.t / grow);
+      const a = 0.5 * (1 - rp.t / rp.life);
       const n = Math.max(8, Math.round((2 * Math.PI * rad) / (c * 2)));
       const key = lineKey(rp.pal, G['·']);
       for (let i = 0; i < n; i++) {

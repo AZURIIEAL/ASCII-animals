@@ -36,14 +36,17 @@ export function createAsciiField(opts: AsciiFieldOptions): AsciiField {
   const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
 
   const palettes = new PaletteTable();
-  registerPalettes(palettes);
+  const foodPal = registerPalettes(palettes);
   const buf = new CellBuffer();
   const trails = new Trails();
   const bg = new Background(mulberry32(seed ^ 0x5bd1e995), opts.theme ?? 'dark', tweaks.bgDensity);
   const world = new World(getAnimal(opts.animal) ?? ANIMALS[0], mulberry32(seed), buf, trails);
   world.density = tweaks.density;
   world.countOverride = opts.count ?? 0;
+  world.foodPal = foodPal;
+  world.trailsOn = tweaks.trails;
   const debug = opts.debug ? new DebugOverlay(host) : null;
+  if (opts.debug) (host as HTMLElement & { __afWorld?: World }).__afWorld = world; // QA hook
 
   let grid: Grid = makeGrid(1, 1, tweaks.cellSize, 1);
   let atlas: Atlas | null = null;
@@ -164,6 +167,7 @@ export function createAsciiField(opts: AsciiFieldOptions): AsciiField {
         (t.bgDensity !== undefined && t.bgDensity !== tweaks.bgDensity);
       Object.assign(tweaks, t);
       world.density = tweaks.density;
+      world.trailsOn = tweaks.trails;
       if (relayout) layout();
       else world.syncCount();
       if (!tweaks.trails) trails.clear();
@@ -185,6 +189,7 @@ export function createAsciiField(opts: AsciiFieldOptions): AsciiField {
       document.removeEventListener('visibilitychange', onVisibility);
       unlisten();
       debug?.destroy();
+      delete (host as HTMLElement & { __afWorld?: World }).__afWorld;
       canvas.remove();
       releaseStyles();
     },

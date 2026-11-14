@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ASCII butterflies: reference renderer</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0a0a0c; color: #e5e7eb;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  #hero { position: relative; overflow: hidden; height: 100vh; display: grid; place-items: center; }
+  .af-canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+  .hero-content { position: relative; z-index: 1; text-align: center; padding: 24px; }
+  h1 { font-size: clamp(40px, 6vw, 72px); margin: 0 0 12px; letter-spacing: -0.02em; }
+  p { margin: 0 0 20px; color: #a1a1aa; }
+  a { color: #93c5fd; }
+  .af-hint { position: absolute; left: 14px; bottom: 10px; z-index: 2;
+    font: 11px ui-monospace, Menlo, Consolas, monospace; color: #52525b; }
+  .af-debug { position: absolute; right: 12px; top: 10px; z-index: 2; white-space: pre;
+    font: 11px ui-monospace, Menlo, Consolas, monospace; color: #71717a; }
+</style>
+</head>
+<body>
+<section id="hero">
+  <div class="hero-content" data-af-dim>
+    <h1>Abin Binu</h1>
+    <p>Ambient ASCII animals, drawn one character cell at a time.</p>
+    <a href="#">a link — clicking this must not scatter</a>
+  </div>
+  <div class="af-hint">click to scatter</div>
+</section>
+
+<script>
+/*
+ * Reference renderer for the ASCII butterflies.
+ * The point of this file is the LOOK. Port its rendering rules into the TypeScript module.
+ *
+ * URL params (handy for tuning and screenshots):
+ *   ?cell=9      cell size in CSS px (default 9)
+ *   ?count=26    number of butterflies (default: scaled to screen area)
+ *   ?seed=7      RNG seed
+ *   ?t=4         render a single still frame after simulating t seconds (no animation loop)
+ *   ?debug       fps / entity / cell counters
+ */
+(() => {
+  'use strict';
+
+  // ---------- params ----------
+  const Q = new URLSearchParams(location.search);
+  const CELL = +Q.get('cell') || 9;
+  const SEED = +Q.get('seed') || 7;
+  const FORCED_COUNT = +Q.get('count') || 0;
+  const STILL_T = Q.has('t') ? +Q.get('t') : null;
+  const DEBUG = Q.has('debug');
+  const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // ---------- rng / noise ----------
+  function mulberry32(a) {
+    return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  }
+  const rand = mulberry32(SEED);
+  const rr = (a, b) => a + (b - a) * rand();
+  function hash2(x, y) {
+    let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263);
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  }
+  function vnoise(t) { // smooth 1D value noise, 0..1
+    const i = Math.floor(t), f = t - i, u = f * f * (3 - 2 * f);
+    return hash2(i, 17) * (1 - u) + hash2(i + 1, 17) * u;
+  }
+  const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+  const smooth = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+
+  // ---------- colour ----------
+  const hex = (h) => { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+  const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+  const css = (c) => `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
+  function ramp(stops, t) {
+    t = clamp01(t); const x = t * (stops.length - 1);
+    const i = Math.min(stops.length - 2, Math.floor(x));
+    return mix(stops[i], stops[i + 1], x - i);
+  }
+
+  // A palette is a dark→light ramp. Tiles pick a step on it from their shade (0..1).
+  const PALETTES = [
+    { id: 'wing', stops: ['#06101e', '#0c2443', '#17497e', '#2a75b8', '#449ad9', '#6cb7ec', '#a3d6f7', '#eef8ff'].map(hex), line: 0.7 },
+    { id: 'body', stops: ['#0b0f1a', '#182033', '#28344d', '#3e4d6b', '#5b6b8c'].map(hex), line: 0.9 },
+  ];
+  const PAL = Object.fromEntries(PALETTES.map((p, i) => [p.id, i]));
+  const STEPS = 24;                              // shade steps per palette
+  const TILE_GLYPHS = ' .:-=+*#%@';              // brightness ramp for glyphs inside tiles
+  const LINE_GLYPHS = ['.', ':', '-', '|', '/', '\\', 'o', '·']; // glyph-only cells (antennae, ripples)
+  const G = Object.fromEntries(LINE_GLYPHS.map((g, i) => [g, i]));
+
+  // Atlas: for palette p, row 2p = shaded tiles (STEPS columns), row 2p+1 = glyph-only cells.
+  let atlas, apx;
+  function buildAtlas(dpr) {
+    apx = Math.round(CELL * dpr);
+    const cv = document.createElement('canvas');
+    cv.width = apx * Math.max(STEPS, LINE_GLYPHS.length);
+    cv.height = apx * PALETTES.length * 2;
+    const g = cv.getContext('2d');
+    const gap = Math.max(1, Math.round(apx * 0.16));
+    const rad = Math.max(1, apx * 0.18);
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    PALETTES.forEach((p, pi) => {
+      for (let s = 0; s < STEPS; s++) {
+        const t = s / (STEPS - 1);
+        const col = ramp(p.stops, t);
+        const x = s * apx, y = pi * 2 * apx;
+        g.fillStyle = css(col);
+        g.beginPath(); g.roundRect(x + gap / 2, y + gap / 2, apx - gap, apx - gap, rad); g.fill();
+        // glyph: small and LOW contrast, it is texture, not text
+        const lum = (0.2126 * col[0] + 0.7152 * col[1] + 0.0722 * col[2]) / 255;
+        g.fillStyle = css(lum > 0.42 ? mix(col, [0, 0, 0], 0.32) : mix(col, [255, 255, 255], 0.16));
+        g.font = `${Math.round(apx * 0.56)}px ui-monospace, Menlo, Consolas, monospace`;
+        const ch = TILE_GLYPHS[Math.min(TILE_GLYPHS.length - 1, Math.floor(t * TILE_GLYPHS.length))];
+        g.fillText(ch, x + apx / 2, y + apx / 2 + apx * 0.03);
+      }
+      const lineCol = css(ramp(p.stops, p.line));
+      LINE_GLYPHS.forEach((ch, gi) => {
+        g.fillStyle = lineCol;
+        g.font = `${Math.round(apx * 0.8)}px ui-monospace, Menlo, Consolas, monospace`;
+        g.fillText(ch, gi * apx + apx / 2, (pi * 2 + 1) * apx + apx / 2);
+      });
+    });
+    atlas = cv;
+  }
+  const tileKey = (pal, shade) => (pal * 2) * 64 + Math.round(clamp01(shade) * (STEPS - 1));
+  const lineKey = (pal, gi) => (pal * 2 + 1) * 64 + gi;
+
+  // ---------- canvas, grid, buffers ----------
+  const host = document.getElementById('hero');
+  const canvas = document.createElement('canvas');
+  canvas.className = 'af-canvas'; canvas.setAttribute('aria-hidden', 'true');
+  host.prepend(canvas);
+  const ctx = canvas.getContext('2d');
+  let W = 0, H = 0, dpr = 1, cols = 0, rows = 0, N = 0;
+  let bA, bKey, bPri, bFrame, occ, occN = 0, frameNo = 1, dimF;
+  let bg, bgCtx;
+
+  function stamp(col, row, key, alpha, pri) {
+    if (col < 0 || row < 0 || col >= cols || row >= rows || alpha < 0.03) return;
+    const i = row * cols + col;
+    if (bFrame[i] !== frameNo) { bFrame[i] = frameNo; occ[occN++] = i; bPri[i] = -1e9; }
+    if (pri >= bPri[i]) { bPri[i] = pri; bKey[i] = key; bA[i] = alpha; }
+  }
+
+  const BG_GLYPHS = ".,:;'`-_=+|/\\";
+  function drawBgCell(col, row) {
+    const c = CELL, x = col * c, y = row * c;
+    bgCtx.fillStyle = '#0a0a0c'; bgCtx.fillRect(x, y, c, c);
+    bgCtx.fillStyle = 'rgba(255,255,255,0.022)';
+    bgCtx.beginPath(); bgCtx.roundRect(x + 0.7, y + 0.7, c - 1.4, c - 1.4, 1.5); bgCtx.fill();
+    if (rand() < 0.32) {
+      bgCtx.fillStyle = `rgba(229,231,235,${rr(0.04, 0.1).toFixed(3)})`;
+      bgCtx.fillText(BG_GLYPHS[(rand() * BG_GLYPHS.length) | 0], x + c / 2, y + c / 2);
+    }
+  }
+
+  function computeDim() {
+    dimF = new Float32Array(N).fill(1);
+    const hr = host.getBoundingClientRect();
+    const rects = [...host.querySelectorAll('[data-af-dim]')].map((el) => {
+      const r = el.getBoundingClientRect();
+      return { l: r.left - hr.left, t: r.top - hr.top, r: r.right - hr.left, b: r.bottom - hr.top };
+    });
+    if (!rects.length) return;
+    const FALL = 120; // px over which the dim fades out; soft edge, never a hard rectangle
+    for (let row = 0; row < rows; row++) for (let col = 0; col < cols; col++) {
+      const x = (col + 0.5) * CELL, y = (row + 0.5) * CELL;
+      let d = 1e9;
+      for (const R of rects) {
+        const dx = Math.max(R.l - x, 0, x - R.r), dy = Math.max(R.t - y, 0, y - R.b);
+        d = Math.min(d, Math.hypot(dx, dy));
+      }
+      dimF[row * cols + col] = 0.3 + 0.7 * smooth(0, FALL, d);
+    }
+  }
+
+  function resize() {
+    const r = host.getBoundingClientRect();
+    W = r.width; H = r.height; dpr = Math.min(devicePixelRatio || 1, 2);
+    canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+    cols = Math.ceil(W / CELL); rows = Math.ceil(H / CELL); N = cols * rows;
+    bA = new Float32Array(N); bKey = new Uint16Array(N); bPri = new Float32Array(N);
+    bFrame = new Uint32Array(N); occ = new Int32Array(N); occN = 0;
+    bg = document.createElement('canvas'); bg.width = canvas.width; bg.height = canvas.height;
+    bgCtx = bg.getContext('2d'); bgCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    bgCtx.textAlign = 'center'; bgCtx.textBaseline = 'middle';
+    bgCtx.font = `${Math.round(CELL * 0.62)}px ui-monospace, Menlo, Consolas, monospace`;
+    for (let row = 0; row < rows; row++) for (let col = 0; col < cols; col++) drawBgCell(col, row);
+    buildAtlas(dpr);
+    computeDim();
+    syncCount();
+    for (const b of flock) { b.x = Math.min(b.x, W); b.y = Math.min(b.y, H); }
+  }
+
+  // ---------- butterfly shape (procedural, evaluated per cell) ----------
+  // Local space is in cells at scale 1. u = right, v = back (head at negative v).
+  function ellipse(x, y, cx, cy, rx, ry, rot) { // <1 inside, 1 on the edge
+    const dx = x - cx, dy = y - cy, c = Math.cos(rot), s = Math.sin(rot);
+    const lx = (dx * c + dy * s) / rx, ly = (-dx * s + dy * c) / ry;
+    return Math.sqrt(lx * lx + ly * ly);
+  }
+  const FORE = { cx: 4.4, cy: -2.5, rx: 4.4, ry: 2.5, rot: -0.72 }; // big, tip points forward-out
+  const HIND = { cx: 3.0, cy: 2.5, rx: 2.9, ry: 2.2, rot: 0.8 };    // smaller, rounder, below
+  const SPAN = 9.6; // half-span in cells, used for the bounding box
+
+  function renderButterfly(b) {
+    const c = CELL, s = b.scale;
+    // Wings fold up toward the viewer: apparent width goes from 100% down to ~15%. Continuous, no frame popping.
+    const fold = 0.16 + 0.84 * Math.sqrt(Math.abs(Math.cos(b.phase))); // sqrt: spends more time open
+    const fx = Math.cos(b.drawHeading), fy = Math.sin(b.drawHeading); // forward
+    const rx = -fy, ry = fx;                                          // right
+    const R = Math.ceil(SPAN * s) + 1;
+    const c0 = Math.floor(b.x / c), r0 = Math.floor(b.y / c);
+    const z = b.z; // per-entity depth so overlapping butterflies stay whole
+
+    for (let row = r0 - R; row <= r0 + R; row++) {
+      if (row < 0 || row >= rows) continue;
+      for (let col = c0 - R; col <= c0 + R; col++) {
+        if (col < 0 || col >= cols) continue;
+        const dx = (col + 0.5) * c - b.x, dy = (row + 0.5) * c - b.y;
+        const u = (dx * rx + dy * ry) / (c * s);
+        const v = -(dx * fx + dy * fy) / (c * s);
+        if (u * u + v * v > SPAN * SPAN) continue;
+
+        // body: thin capsule + head, darkest tiles, drawn above the wings
+        const bv = Math.max(-3.0, Math.min(3.6, v));
+        const bodyR = v < 0 ? 0.75 : 0.6;                 // thorax a bit thicker than abdomen
+        const dBody = Math.hypot(u, v - bv);
+        const dHead = Math.hypot(u, v + 3.9);
+        const bodyCov = Math.max(smooth(bodyR + 0.45, bodyR - 0.1, dBody), smooth(1.15, 0.6, dHead));
+        if (bodyCov > 0.05) {
+          const sh = 0.3 + 0.55 * (1 - clamp01(dBody / 1.0)) - 0.12 * clamp01(v / 3.6);
+          stamp(col, row, tileKey(PAL.body, sh), bodyCov, z + 0.5);
+          if (bodyCov > 0.6) continue;
+        }
+
+        // wings: two ellipses per side, mirrored, squashed by the fold
+        const ax = Math.abs(u) / fold;
+        const e1 = ellipse(ax, v, FORE.cx, FORE.cy, FORE.rx, FORE.ry, FORE.rot);
+        const e2 = ellipse(ax, v, HIND.cx, HIND.cy, HIND.rx, HIND.ry, HIND.rot);
+        const e = Math.min(e1, e2);
+        if (e >= 1.12) continue;
+        const cov = smooth(1.12, 0.84, e);           // soft edge: outer ring of dim tiles
+
+        let sh = 0.34 + 0.5 * clamp01(ax / 8);       // lighter toward the wing tips
+        sh += e1 < e2 ? 0.05 : -0.05;                // forewing a touch brighter than hindwing
+        sh -= 0.5 * smooth(0.7, 1.0, e) * sh;        // darker rim along the wing edge
+        sh -= 0.12 * smooth(1.4, 0.0, ax);           // slightly darker where the wing meets the body
+        sh += (hash2(Math.floor(ax * 1.8) + (u < 0 ? 97 : 0), Math.floor(v * 1.8) + b.id * 31) - 0.5) * 0.2; // mottled scales
+        if (Math.hypot(ax - 6.6, v + 4.4) < 0.8 || Math.hypot(ax - 6.9, v + 2.9) < 0.6) sh = 0.97; // tip spots
+        sh *= 0.62 + 0.38 * fold;                    // folded wings read darker (seen edge-on)
+        stamp(col, row, tileKey(PAL.wing, sh), cov, z);
+      }
+    }
+
+    // antennae: glyph-only cells, no tiles
+    for (const side of [-1, 1]) {
+      let px = null, py = null;
+      for (let k = 0; k <= 7; k++) {
+        const t = k / 7;
+        const lu = side * (0.3 + 0.5 * t + 1.4 * t * t);        // quadratic curve outward
+        const lv = -4.6 - 3.0 * t;
+        const wx = b.x + (lu * rx - lv * fx) * c * s;
+        const wy = b.y + (lu * ry - lv * fy) * c * s;
+        let gi;
+        if (k === 7) gi = G['o'];
+        else if (px === null) gi = G['.'];
+        else {
+          const a = Math.atan2(wy - py, wx - px); // screen angle → line glyph
+          const o = ((a % Math.PI) + Math.PI) % Math.PI; // 0..π
+          gi = o < Math.PI / 8 || o > (7 * Math.PI) / 8 ? G['-'] : o < (3 * Math.PI) / 8 ? G['\\'] : o < (5 * Math.PI) / 8 ? G['|'] : G['/'];
+        }
+        stamp(Math.floor(wx / c), Math.floor(wy / c), lineKey(PAL.wing, gi), 0.55, z - 0.2);
+        px = wx; py = wy;
+      }
+    }
+  }
+
+  // ---------- simulation ----------
+  const flock = [];
+  let nextId = 1;
+  function spawn() {
+    return {
+      id: nextId++, z: rand(), x: rr(0, W), y: rr(0, H),
+      heading: rr(0, Math.PI * 2), drawHeading: 0, vx: 0, vy: 0,
+      speed: rr(36, 62), phase: rr(0, 10), flapHz: rr(3.4, 4.8),
+      scale: rr(0.75, 1.3), seed: rr(0, 1000), panic: 0,
+    };
+  }
+  function targetCount() {
+    if (FORCED_COUNT) return FORCED_COUNT;
+    const n = Math.round(26 * (W * H) / (1920 * 1080) * (W < 768 ? 0.6 : 1));
+    return Math.max(6, Math.min(60, n));
+  }
+  function syncCount() {
+    const n = targetCount();
+    while (flock.length < n) { const b = spawn(); b.drawHeading = b.heading; flock.push(b); }
+    flock.length = n;
+  }
+
+  let simT = 0;
+  function update(dt) {
+    simT += dt;
+    for (const b of flock) {
+      b.heading += (vnoise(simT * 0.4 + b.seed) - 0.5) * 3.4 * dt;   // smooth wander
+      const sp = b.speed * (1 + 2.2 * b.panic);
+      const k = 1 - Math.exp(-dt * 1.8);
+      b.vx += (Math.cos(b.heading) * sp - b.vx) * k;
+      b.vy += (Math.sin(b.heading) * sp - b.vy) * k;
+      const bob = Math.sin(b.phase * 0.5) * 12;                       // fluttery side-to-side
+      b.x += (b.vx - Math.sin(b.heading) * bob) * dt;
+      b.y += (b.vy + Math.cos(b.heading) * bob) * dt;
+      b.phase += dt * b.flapHz * Math.PI * 2 * (1 + 0.9 * b.panic);
+      b.panic = Math.max(0, b.panic - dt * 0.8);
+      let d = Math.atan2(b.vy, b.vx) - b.drawHeading;
+      d = Math.atan2(Math.sin(d), Math.cos(d));
+      b.drawHeading += d * (1 - Math.exp(-dt * 6));
+      const m = SPAN * b.scale * CELL;                                // wrap with margin, no popping
+      if (b.x < -m) b.x += W + 2 * m; else if (b.x > W + m) b.x -= W + 2 * m;
+      if (b.y < -m) b.y += H + 2 * m; else if (b.y > H + m) b.y -= H + 2 * m;
+    }
+    for (let i = ripples.length - 1; i >= 0; i--) if ((ripples[i].t += dt) > 0.45) ripples.splice(i, 1);
+  }
+
+  // ---------- interaction ----------
+  const ripples = [];
+  const IGNORE = 'a, button, input, textarea, select, label, [role="button"], [data-af-ignore]';
+  function scatterRadius() { return 240 * Math.max(0.6, Math.min(1.4, Math.min(W, H) / 900)); }
+  host.addEventListener('pointerdown', (ev) => {
+    if (ev.button !== 0 || ev.target.closest(IGNORE)) return;
+    const r = host.getBoundingClientRect();
+    const px = ev.clientX - r.left, py = ev.clientY - r.top, R = scatterRadius();
+    for (const b of flock) {
+      const dx = b.x - px, dy = b.y - py, d = Math.hypot(dx, dy);
+      if (d >= R) continue;
+      const k = (1 - d / R) ** 2, nx = d ? dx / d : 1, ny = d ? dy / d : 0;
+      b.vx += nx * 900 * k; b.vy += ny * 900 * k;
+      b.heading = Math.atan2(ny, nx);                                 // keep fleeing, don't turn straight back
+      b.panic = Math.max(b.panic, k);
+    }
+    ripples.push({ x: px, y: py, t: 0, R });
+    if (REDUCED || STILL_T !== null) draw();
+  });
+
+  function renderRipples() {
+    for (const rp of ripples) {
+      const p = rp.t / 0.35, rad = rp.R * Math.min(1, p), a = 0.5 * (1 - rp.t / 0.45);
+      const n = Math.max(8, Math.round((2 * Math.PI * rad) / (CELL * 2)));
+      for (let i = 0; i < n; i++) {
+        const t = (i / n) * Math.PI * 2;
+        stamp(Math.floor((rp.x + Math.cos(t) * rad) / CELL), Math.floor((rp.y + Math.sin(t) * rad) / CELL),
+          lineKey(PAL.wing, G['·']), a, -5);
+      }
+    }
+  }
+
+  // ---------- render ----------
+  let lastDraw = 0;
+  function draw() {
+    const t0 = performance.now();
+    frameNo++; occN = 0;
+    for (const b of flock) renderButterfly(b);
+    renderRipples();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.drawImage(bg, 0, 0);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    for (let n = 0; n < occN; n++) {
+      const i = occ[n], key = bKey[i];
+      ctx.globalAlpha = bA[i] * dimF[i];
+      const col = i % cols, row = (i / cols) | 0;
+      ctx.drawImage(atlas, (key & 63) * apx, (key >> 6) * apx, apx, apx, col * CELL, row * CELL, CELL, CELL);
+    }
+    ctx.globalAlpha = 1;
+    lastDraw = performance.now() - t0;
+  }
+
+  function shimmer(dt) {
+    const k = Math.floor(N * 0.01 * dt + rand());
+    for (let i = 0; i < k; i++) drawBgCell((rand() * cols) | 0, (rand() * rows) | 0);
+  }
+
+  // ---------- loop ----------
+  let last = 0, running = false, rafId = 0, fps = 0, dbg;
+  if (DEBUG) { dbg = document.createElement('div'); dbg.className = 'af-debug'; host.append(dbg); }
+  function frame(now) {
+    const dt = Math.min((now - last) / 1000, 1 / 20); last = now;
+    update(dt); shimmer(dt); draw();
+    if (dbg) { fps = fps * 0.9 + (dt ? 1 / dt : 0) * 0.1;
+      dbg.textContent = `fps ${fps.toFixed(0)}\nbutterflies ${flock.length}\ncells ${occN}\ndraw ${lastDraw.toFixed(2)} ms`; }
+    if (running) rafId = requestAnimationFrame(frame);
+  }
+  function start() { if (running || REDUCED || STILL_T !== null) return; running = true; last = performance.now(); rafId = requestAnimationFrame(frame); }
+  function stop() { running = false; cancelAnimationFrame(rafId); }
+
+  resize();
+  if (STILL_T !== null || REDUCED) {
+    const steps = Math.round((STILL_T ?? 2) * 60);
+    for (let i = 0; i < steps; i++) update(1 / 60);
+    draw();
+  } else start();
+
+  let rT = 0;
+  new ResizeObserver(() => { clearTimeout(rT); rT = setTimeout(() => { resize(); draw(); }, 100); }).observe(host);
+  document.addEventListener('visibilitychange', () => (document.hidden ? stop() : start()));
+  new IntersectionObserver(([e]) => (e.isIntersecting ? start() : stop())).observe(host);
+  window.__af = { flock, draw, update }; // for screenshots / debugging
+})();
+</script>
+</body>
+</html>

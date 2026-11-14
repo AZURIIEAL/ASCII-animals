@@ -1,29 +1,27 @@
-/** Every class is af- prefixed so nothing clashes with portfolio styles. */
-export const STYLE_ID = 'af-styles';
-
-export const CSS = `
-.af-canvas{position:absolute;inset:0;z-index:0;pointer-events:none;display:block}
-.af-ui{position:absolute;z-index:2;font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#a1a1aa}
-.af-debug{position:absolute;top:8px;left:8px;z-index:2;padding:6px 8px;border-radius:8px;
-  background:rgba(20,20,24,.6);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.08);
-  font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#a1a1aa;white-space:pre;
-  pointer-events:none}
+const CSS = `
+.af-canvas{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;display:block}
+.af-debug{position:absolute;right:12px;top:10px;z-index:2;white-space:pre;pointer-events:none;
+  font:11px ui-monospace,Menlo,Consolas,monospace;color:#71717a}
 `;
 
-let refCount = 0;
+let refs = 0;
+let el: HTMLStyleElement | null = null;
 
-/** Injected once per document, removed when the last field is destroyed. */
-export function injectStyles(doc: Document): void {
-  refCount++;
-  if (doc.getElementById(STYLE_ID)) return;
-  const el = doc.createElement('style');
-  el.id = STYLE_ID;
-  el.textContent = CSS;
-  doc.head.appendChild(el);
-}
-
-export function releaseStyles(doc: Document): void {
-  refCount = Math.max(0, refCount - 1);
-  if (refCount > 0) return;
-  doc.getElementById(STYLE_ID)?.remove();
+/** Inject the af- styles once (ref-counted across instances); remove when the last instance goes. */
+export function acquireStyles(): () => void {
+  if (refs++ === 0) {
+    el = document.createElement('style');
+    el.setAttribute('data-af', '');
+    el.textContent = CSS;
+    document.head.append(el);
+  }
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    if (--refs === 0) {
+      el?.remove();
+      el = null;
+    }
+  };
 }

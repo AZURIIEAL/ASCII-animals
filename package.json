@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Interactive ASCII animal field for the abinbinu.in hero section",
+  "description": "Fifteen interactive animals drawn in ASCII character cells on one canvas: a living, clickable background for a hero section. TypeScript, zero dependencies.",
   "main": "dist/ascii-field.js",
   "types": "dist/index.d.ts",
   "scripts": {

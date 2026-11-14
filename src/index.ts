@@ -1,5 +1,7 @@
 import { DEFAULT_TWEAKS, type AnimalId, type AsciiField, type AsciiFieldOptions, type Tweaks } from './types';
-import { CRUMB_PAL, FOOD_PAL, isAnimalId, loadAnimal, PALETTES } from './animals/registry';
+import { ANIMAL_META, CRUMB_PAL, FOOD_PAL, isAnimalId, loadAnimal, PALETTES } from './animals/registry';
+import { loadSaved, save } from './persist';
+import { Switcher } from './ui/switcher';
 import type { AnimalDef } from './animals/types';
 import { buildAtlas, type Atlas } from './engine/atlas';
 import { Background } from './engine/background';
@@ -44,6 +46,9 @@ export function createAsciiField(opts: AsciiFieldOptions): AsciiField {
   const tweaks: Tweaks = { ...DEFAULT_TWEAKS, ...opts.tweaks };
   const seed = opts.seed ?? 7;
   const dimSelector = opts.dimSelector ?? '[data-af-dim]';
+  const persist = opts.persist ?? true;
+  const saved = persist ? loadSaved() : {};
+  const initial: AnimalId = isAnimalId(opts.animal) ? opts.animal : isAnimalId(saved.animal) ? saved.animal : 'butterfly';
   const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   // Still mode: QA screenshots (?t=) or reduced motion. Simulate, draw one frame, run no loop.
   const stillT = opts.stillT ?? (reduced ? 2 : null);
@@ -69,6 +74,10 @@ export function createAsciiField(opts: AsciiFieldOptions): AsciiField {
   type QaHost = HTMLElement & { __afWorld?: World; __afDraw?: () => void };
   if (opts.debug) (host as QaHost).__afWorld = world;
 
+  // Switcher bar: on top by default (ui.switcher: 'bottom' or false to change).
+  const switcherPos = opts.ui?.switcher ?? 'top';
+  let switcher: Switcher | null = null;
+
   let grid: Grid = makeGrid(1, 1, tweaks.cellSize, 1);
   let atlas: Atlas | null = null;
   let dim: Float32Array = new Float32Array(1);
@@ -88,6 +97,7 @@ export function createAsciiField(opts: AsciiFieldOptions): AsciiField {
     dim = computeDim(grid, dimRects(host, dimSelector));
     world.setGrid(grid);
     world.syncCount();
+    switcher?.layout(grid.w);
   }
 
   function draw(): void {
@@ -135,12 +145,14 @@ export function createAsciiField(opts: AsciiFieldOptions): AsciiField {
   /** Load an animal's chunk (cached), then swap it in. Later calls win over earlier ones. */
   function show(id: AnimalId): void {
     wanted = id;
+    switcher?.set(id);
     const token = ++loadToken;
     loadAnimal(id).then(
       (def) => {
         if (destroyed || token !== loadToken) return;
         atlas = buildAtlas(PALETTES.list, grid.cell, grid.dpr); // now includes this animal's ramps
-        world.setAnimal(def);
+        // Fly the old animals out and the new ones in — except for the very first animal and in still mode.
+        world.setAnimal(def, stillT === null && world.def !== NO_ANIMAL);
         if (stillT !== null && !simulated) {
           // Still mode (QA screenshots / reduced motion): simulate, then draw one frame.
           simulated = true;
@@ -161,7 +173,11 @@ export function createAsciiField(opts: AsciiFieldOptions): AsciiField {
       (err) => console.warn('[ascii-field] could not load animal', id, err),
     );
   }
-  show(isAnimalId(opts.animal) ? opts.animal : 'butterfly');
+  if (switcherPos !== false) {
+    switcher = new Switcher(host, ANIMAL_META, initial, switcherPos, (id) => api.setAnimal(id));
+    switcher.layout(grid.w);
+  }
+  show(initial);
 
   // ---------- observers & listeners ----------
   let rT = 0;
@@ -206,10 +222,11 @@ export function createAsciiField(opts: AsciiFieldOptions): AsciiField {
 
   syncRunning();
 
-  return {
+  const api: AsciiField = {
     setAnimal(id) {
       if (!isAnimalId(id) || id === wanted) return;
-      show(id); // M5 adds fly-out / fly-in transitions
+      show(id);
+      if (persist) save({ animal: id });
     },
     setTweaks(t) {
       const relayout =
@@ -241,10 +258,12 @@ export function createAsciiField(opts: AsciiFieldOptions): AsciiField {
       unlisten();
       unlistenPointer();
       debug?.destroy();
+      switcher?.destroy();
       delete (host as QaHost).__afWorld;
       delete (host as QaHost).__afDraw;
       canvas.remove();
       releaseStyles();
     },
   };
+  return api;
 }

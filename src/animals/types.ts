@@ -19,6 +19,8 @@ export interface Entity {
   speed: number; // base speed, px/s
   rate: number; // base cycle rate (flap Hz, gait Hz, …)
   exiting?: boolean;
+  /** Direction (radians) a leaving entity heads off-screen. */
+  exitA?: number;
   data?: unknown;
 }
 

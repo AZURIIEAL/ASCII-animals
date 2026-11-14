@@ -11,6 +11,15 @@ const RIPPLE_GROW = 0.35; // s
 const RIPPLE_LIFE = 0.45; // s
 const SOFT_BAND = 60; // px
 export const PELLET_LIFE = 6; // s
+export const EXIT_TIME = 0.8; // s: leaving animals fade out over this (§12)
+export const ARRIVE_TIME = 0.6; // s: new animals are staggered in over this
+const EXIT_SPEED = 220; // px/s added toward the nearest edge
+
+interface Leaving {
+  def: AnimalDef;
+  ents: Entity[];
+  t: number;
+}
 export const EAT_RADIUS = 10; // px
 
 interface Ripple {
@@ -38,6 +47,10 @@ export const scatterImpulse = (d: number, R: number): number => (d >= R ? 0 : 90
 /** Simulation state + the Stamper animals render through. */
 export class World implements Stamper, WorldView {
   entities: Entity[] = [];
+  /** True while a switch is still flying animals in or out. */
+  get transitioning(): boolean {
+    return this.leaving.length > 0 || this.arrived < this.arriveTotal;
+  }
   t = 0;
   w = 1;
   h = 1;
@@ -55,6 +68,12 @@ export class World implements Stamper, WorldView {
   pointer: Pointer = { x: 0, y: 0, active: false };
   private ripples: Ripple[] = [];
   private nextId = 1;
+  /** Animals flying off after a switch, still driven by their own definition. */
+  private leaving: Leaving[] = [];
+  private arriveTotal = 0;
+  private arrived = 0;
+  private arriveT = 0;
+  private alphaMul = 1;
   private spawnN = 0;
 
   constructor(
@@ -114,17 +133,46 @@ export class World implements Stamper, WorldView {
   /** Grow or shrink to the target count. New entities appear at random positions. */
   syncCount(): void {
     const n = this.targetCount();
+    if (this.arrived < this.arriveTotal) {
+      this.arriveTotal = n; // still flying in: just retarget
+      return;
+    }
     while (this.entities.length < n) this.entities.push(this.def.spawn(this, this.spawnRng(), false));
     if (this.entities.length > n) this.entities.length = n;
   }
 
-  /** Replace the population (M5 adds fly-out / fly-in transitions). */
-  setAnimal(def: AnimalDef): void {
+  /**
+   * Switch animals. With `transition`, the current ones fly off toward the nearest edge and fade out
+   * while the new ones fly in from the edges, staggered (§12); otherwise the swap is instant.
+   */
+  setAnimal(def: AnimalDef, transition = false): void {
+    if (transition && this.entities.length) {
+      for (const e of this.entities) {
+        e.exiting = true;
+        const l = e.x;
+        const r = this.w - e.x;
+        const t = e.y;
+        const b = this.h - e.y;
+        const m = Math.min(l, r, t, b);
+        e.exitA = m === l ? Math.PI : m === r ? 0 : m === t ? -Math.PI / 2 : Math.PI / 2;
+      }
+      this.leaving.push({ def: this.def, ents: this.entities, t: 0 });
+      if (this.leaving.length > 2) this.leaving.shift(); // at most ~2× the normal count on screen
+    } else {
+      this.leaving.length = 0;
+      this.trails.clear();
+    }
     this.def = def;
-    this.entities.length = 0;
+    this.entities = [];
     this.pellets.length = 0;
-    this.trails.clear();
-    this.syncCount();
+    if (transition) {
+      this.arriveTotal = this.targetCount();
+      this.arrived = 0;
+      this.arriveT = 0;
+    } else {
+      this.arriveTotal = this.arrived = 0;
+      this.syncCount();
+    }
   }
 
   // ---------- simulation ----------
@@ -132,6 +180,32 @@ export class World implements Stamper, WorldView {
   update(dt: number): void {
     this.t += dt;
     const def = this.def;
+    // Fly-in: spawn the new animals from the edges over ARRIVE_TIME.
+    if (this.arrived < this.arriveTotal) {
+      this.arriveT += dt;
+      const want = Math.ceil(this.arriveTotal * Math.min(1, this.arriveT / ARRIVE_TIME));
+      while (this.arrived < want) {
+        this.entities.push(def.spawn(this, this.spawnRng(), true));
+        this.arrived++;
+      }
+    }
+    // Fly-out: keep the leaving animals alive (so their tentacles, tails… stay attached), aimed at the edge.
+    for (let g = this.leaving.length - 1; g >= 0; g--) {
+      const L = this.leaving[g];
+      L.t += dt;
+      if (L.t > EXIT_TIME) {
+        this.leaving.splice(g, 1);
+        continue;
+      }
+      for (const e of L.ents) {
+        const a = e.exitA ?? 0;
+        e.heading = a;
+        e.panic = Math.max(e.panic, 0.6);
+        L.def.update(e, dt, this);
+        e.x += Math.cos(a) * EXIT_SPEED * dt;
+        e.y += Math.sin(a) * EXIT_SPEED * dt;
+      }
+    }
     for (const e of this.entities) {
       def.update(e, dt, this);
       e.panic = Math.max(0, e.panic - dt * PANIC_DECAY);
@@ -258,6 +332,11 @@ export class World implements Stamper, WorldView {
 
   render(): void {
     this.buf.begin();
+    for (const L of this.leaving) {
+      this.alphaMul = Math.max(0, 1 - L.t / EXIT_TIME);
+      for (const e of L.ents) L.def.render(e, this, this);
+    }
+    this.alphaMul = 1;
     const def = this.def;
     for (const e of this.entities) def.render(e, this, this);
     this.renderRipples();
@@ -294,7 +373,7 @@ export class World implements Stamper, WorldView {
   // ---------- Stamper ----------
 
   stamp(col: number, row: number, key: number, alpha: number, pri: number): void {
-    this.buf.stamp(col, row, key, alpha, pri);
+    this.buf.stamp(col, row, key, alpha * this.alphaMul, pri);
   }
 
   tileKey(pal: number, shade: number): number {
@@ -347,7 +426,7 @@ export class World implements Stamper, WorldView {
       if (i === n - 1) g = tip;
       else if (i === 0) g = G['.'];
       else g = G[lineGlyph(Math.atan2(wy - py, wx - px)) as LineGlyph];
-      this.buf.stamp(Math.floor(wx / c), Math.floor(wy / c), lineKey(pal, g), alpha, pri);
+      this.buf.stamp(Math.floor(wx / c), Math.floor(wy / c), lineKey(pal, g), alpha * this.alphaMul, pri);
       px = wx;
       py = wy;
     }

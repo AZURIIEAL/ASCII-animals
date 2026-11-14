@@ -90,3 +90,31 @@ describe('butterfly', () => {
     expect(e.x).toBeGreaterThan(1920);
   });
 });
+
+describe('switching animals', () => {
+  it('flies the old animals out within 0.8 s and the new ones in over 0.6 s', async () => {
+    const { koi } = await import('../src/animals/koi');
+    const w = makeWorld(butterfly, 10);
+    const old = [...w.entities];
+    w.setAnimal(koi, true);
+    expect(w.transitioning).toBe(true);
+    expect(old.every((e) => e.exiting)).toBe(true);
+    expect(w.entities.length).toBe(0); // the new ones arrive staggered
+    for (let i = 0; i < 18; i++) w.update(1 / 60); // 0.3 s
+    expect(w.entities.length).toBeGreaterThan(0);
+    expect(w.entities.length).toBeLessThan(10);
+    for (let i = 0; i < 31; i++) w.update(1 / 60); // ~0.82 s total
+    expect(w.transitioning).toBe(false);
+    expect(w.entities.length).toBe(10);
+    expect(w.entities.every((e) => !e.exiting)).toBe(true);
+    // Leaving animals are no longer rendered.
+    w.render();
+  });
+
+  it('switches instantly without a transition', () => {
+    const w = makeWorld(butterfly, 6);
+    w.setAnimal(butterfly, false);
+    expect(w.transitioning).toBe(false);
+    expect(w.entities.length).toBe(6);
+  });
+});

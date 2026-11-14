@@ -35,7 +35,7 @@
         count: num('count'),
         stillT: num('t'),
         debug: Q.has('debug'),
-        persist: false,
+        persist: !Q.has('animal'), // remember the switcher's choice unless an animal is forced in the URL
         tweaks: cell ? { cellSize: cell } : undefined,
       });
     </script>

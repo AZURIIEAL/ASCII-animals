@@ -166,7 +166,7 @@ export const octopus: AnimalDef = {
     e.rate = range(rng, 3, 5.5); // s between jets
     e.stateT = range(rng, 0, e.rate);
     e.state = 'drift';
-    e.scale = range(rng, 0.85, 1.55);
+    e.scale = range(rng, 0.85, 1.55) * world.size;
     e.seed = range(rng, 0, 1000);
     e.data = {
       arms: new Float32Array(ARMS * SEG * 2),

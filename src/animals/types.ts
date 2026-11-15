@@ -64,6 +64,8 @@ export interface WorldView {
   readonly w: number;
   readonly h: number;
   readonly cell: number;
+  /** Multiplier for e.scale so animals keep their pixel size whatever the grid cell. */
+  readonly size: number;
   readonly t: number; // simulated seconds
   readonly rng: Rng;
   readonly entities: readonly Entity[];

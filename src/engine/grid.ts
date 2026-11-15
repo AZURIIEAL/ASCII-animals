@@ -22,3 +22,6 @@ export function makeGrid(w: number, h: number, cell: number, devicePixelRatio: n
 
 /** Mobile rule (§13): an 8 px cell when the host is narrower than 768 px. */
 export const effectiveCell = (w: number, cellSize: number): number => (w < 768 ? Math.min(cellSize, 8) : cellSize);
+
+/** CSS px per animal unit (scale 1), kept apart from the cell so the grid can be finer than the animals. */
+export const animalUnit = (w: number): number => (w < 768 ? 8 : 9) * 1.25;

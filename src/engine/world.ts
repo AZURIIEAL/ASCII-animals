@@ -1,6 +1,6 @@
 import type { AnimalDef, CellFn, Entity, Pellet, Pointer, Stamper, WorldView } from '../animals/types';
 import type { CellBuffer } from './cellBuffer';
-import type { Grid } from './grid';
+import { animalUnit, type Grid } from './grid';
 import type { Trails } from './trails';
 import { lineKey, tileKey } from './atlas';
 import { G, lineGlyph, type LineGlyph } from './shapes';
@@ -56,6 +56,7 @@ export class World implements Stamper, WorldView {
   w = 1;
   h = 1;
   cell = 9;
+  size = 1;
   cols = 1;
   rows = 1;
   density = 1;
@@ -97,6 +98,7 @@ export class World implements Stamper, WorldView {
     this.w = g.w;
     this.h = g.h;
     this.cell = g.cell;
+    this.size = animalUnit(g.w) / g.cell;
     this.cols = g.cols;
     this.rows = g.rows;
     for (const e of this.entities) {

@@ -131,7 +131,7 @@ Tweaks:
 | :-- | :-- | :-- | :-- |
 | `density` | `1` | 0.25 to 2 | Multiplier on the number of animals. |
 | `speed` | `1` | 0.25 to 2 | Global speed multiplier. |
-| `cellSize` | `9` | 6 to 16 | Size of one character cell in CSS pixels. |
+| `cellSize` | `7` | 6 to 16 | Size of one character cell in CSS pixels. |
 | `bgDensity` | `0.32` | 0 to 1 | How many background cells carry a faint glyph. |
 | `trails` | `true` | | Trails behind dragonflies and jellyfish. |
 

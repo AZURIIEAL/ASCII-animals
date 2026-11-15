@@ -314,7 +314,7 @@ export const whale: AnimalDef = {
     e.rate = range(rng, 0.3, 0.4); // fluke beats per second
     e.phase = range(rng, 0, 10);
     // Scale so the whale is ~85 cells long on a desktop hero, less on small screens.
-    e.scale = Math.max(0.75, Math.min(1.5, world.w / 1250));
+    e.scale = Math.max(0.75, Math.min(1.5, world.w / 1250)) * world.size;
     e.seed = range(rng, 0, 1000);
     e.data = {
       baseScale: e.scale,

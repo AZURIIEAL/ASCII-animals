@@ -82,7 +82,7 @@ export const manta: AnimalDef = {
     e.speed = range(rng, 70, 100);
     e.rate = range(rng, 0.55, 0.75); // beats per second
     e.phase = range(rng, 0, 10);
-    e.scale = range(rng, 0.8, 1.65);
+    e.scale = range(rng, 0.8, 1.65) * world.size;
     e.seed = range(rng, 0, 1000);
     if (fromEdge) placeAtEdge(e, world, rng, (RADIUS + 6) * e.scale * world.cell);
     e.drawHeading = e.heading;

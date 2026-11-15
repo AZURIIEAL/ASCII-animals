@@ -66,7 +66,7 @@ export const firefly: AnimalDef = {
     e.speed = range(rng, 14, 34);
     e.rate = range(rng, 0.2, 0.36); // blink cycles per second (2.8–5 s period)
     e.phase = rng(); // blink phase 0..1
-    e.scale = range(rng, 0.65, 1.4);
+    e.scale = range(rng, 0.65, 1.4) * world.size;
     e.seed = range(rng, 0, 1000);
     if (fromEdge) placeAtEdge(e, world, rng, RADIUS * e.scale * world.cell);
     e.drawHeading = e.heading;
